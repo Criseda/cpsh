@@ -1,9 +1,29 @@
+#define _POSIX_C_SOURCE 199309L
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+// Global flag to control prompt reprinting
+volatile sig_atomic_t print_prompt = 0;
+
+void sigint_handler(int sig) {
+  // Signal-safe flag setting
+  print_prompt = 1;
+  // ALT: write directly to stdout using write() since it's signal-safe
+  // write(STDOUT_FILENO, "\nbsh> ", 6);
+}
+
+void setup_sigint_handler() {
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = sigint_handler;
+  // Optionally set sa.sa_flags here
+  sigaction(SIGINT, &sa, NULL);
+}
 
 int bsh_exit(char **args) {
   return 0;  // Return 0 to signal that the shell should exit
@@ -122,8 +142,18 @@ void bsh_loop(void) {
   char **args;     // array of arguments
   int status = 1;  // status of the shell
 
+  // Set up the signal handler for SIGINT
+  setup_sigint_handler();
+
   do {
-    printf("> ");
+    if (print_prompt) {
+      printf("\nbsh> ");
+      fflush(stdout);
+      print_prompt = 0;  // Reset the flag after printing
+    } else {
+      printf("bsh> ");
+      fflush(stdout);
+    }
     line = bsh_read_line();      // Fix the assignment of line variable
     args = bsh_tokenise(line);   // Fix the assignment of args variable
     status = bsh_execute(args);  // Fix the assignment of status variable
