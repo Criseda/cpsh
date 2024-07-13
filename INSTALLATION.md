@@ -2,7 +2,7 @@
 
 ## Requirements
 - A Unix-like operating system: macOS, Linux, BSD. On Windows, WSL is recommended.
-- NOT POSIX COMPLIANT!! Will not work on Windows.
+- Windows does not fully support POSIX APIs, therefore for now, it will not compile on Windows. (looking for a fix)
 - A gcc compiler
 - [CMake](https://cmake.org/download/)
 
