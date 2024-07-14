@@ -25,6 +25,26 @@ void setup_sigint_handler() {
   sigaction(SIGINT, &sa, NULL);
 }
 
+int cpsh_cd(char **args) {
+  if (args[1] == NULL) {
+    // No argument provided, change directory to home directory
+    const char *home_dir = getenv("HOME");
+    if (home_dir == NULL) {
+      fprintf(stderr, "cpsh: unable to get home directory\n");
+    } else {
+      if (chdir(home_dir) != 0) {
+        perror("cpsh");
+      }
+    }
+  } else {
+    // Argument provided, change directory to specified path
+    if (chdir(args[1]) != 0) {
+      perror("cpsh");
+    }
+  }
+  return 1;
+}
+
 int cpsh_exit(char **args) {
   return 0;  // Return 0 to signal that the shell should exit
 }
@@ -115,6 +135,9 @@ int cpsh_execute(char **args) {
   if (args[0] == NULL) {
     return 1;  // An empty command was entered
   }
+  if (strcmp(args[0], "cd") == 0) {
+    return cpsh_cd(args);  // Call the cpsh_cd function
+  }
   if (strcmp(args[0], "exit") == 0) {
     return cpsh_exit(args);  // Call the cpsh_exit function
   }
@@ -124,7 +147,7 @@ int cpsh_execute(char **args) {
   if (pid == 0) {
     // we are the child process
     if (execvp(args[0], args) == -1) {
-      printf("cpsh: %s: command not found\n", args[0]);
+      printf("cpsh: command not found: %s \n", args[0]);
     }
     exit(EXIT_FAILURE);
   } else if (pid < 0) {
