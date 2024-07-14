@@ -1,3 +1,3 @@
-# bsh
+# cpsh
 
-Basic Shell - lightweight command-line shell made in C.
+Lightweight command-line shell made in C.
