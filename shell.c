@@ -58,6 +58,8 @@ int cpsh_cd(char **args) {
         // Change directory to the new path
         if (chdir(new_path) != 0) {
           perror("cpsh");
+          free(new_path); // in case of error, free the allocated memory
+          return 1;
         }
         // Free the allocated memory
         free(new_path);
@@ -108,6 +110,7 @@ char *cpsh_read_line() {
       if (!buffer) // If the buffer is NULL
       {
         fprintf(stderr, "cpsh: allocation error\n"); // Print an error message
+        free(buffer);                                // Free the buffer
         exit(EXIT_FAILURE);                          // Exit the program
       }
     }
@@ -143,6 +146,7 @@ char **cpsh_tokenise(char *line) {
       if (!tokens) // If the tokens are NULL
       {
         fprintf(stderr, "cpsh: allocation error\n"); // Print an error message
+        free(tokens);                                // Free the tokens
         exit(EXIT_FAILURE);                          // Exit the program
       }
     }
