@@ -46,7 +46,7 @@ int cpsh_cd(char **args) {
       } else {
         // Allocate memory for the new path
         // +1 for the null terminator, -1 because we're replacing the tilde
-        char *new_path = malloc(strlen(home_dir) + strlen(args[1]));
+        char *new_path = malloc(strlen(home_dir) + strlen(args[1]) - 1 + 1);
         if (new_path == NULL) {
           fprintf(stderr, "cpsh: memory allocation error\n");
           return 1;
@@ -103,16 +103,15 @@ char *cpsh_read_line() {
     position++; // Increment the position
 
     if (position >= buffer_size) {
-      buffer_size += 1024; // Increase the buffer size
-      buffer = realloc(buffer,
-                       buffer_size); // Allocate some more memory for the buffer
-
-      if (!buffer) // If the buffer is NULL
-      {
-        fprintf(stderr, "cpsh: allocation error\n"); // Print an error message
-        free(buffer);                                // Free the buffer
-        exit(EXIT_FAILURE);                          // Exit the program
+      int new_size = buffer_size + 1024;
+      char *new_buffer = realloc(buffer, new_size);
+      if (!new_buffer) {
+        fprintf(stderr, "cpsh: allocation error\n");
+        free(buffer); // Free the original buffer
+        exit(EXIT_FAILURE);
       }
+      buffer = new_buffer;
+      buffer_size = new_size;
     }
   }
 }
