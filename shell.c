@@ -14,7 +14,7 @@ void sigint_handler(int sig) {
   // Signal-safe flag setting
   print_prompt = 1;
   // ALT: write directly to stdout using write() since it's signal-safe
-  // write(STDOUT_FILENO, "\nbsh> ", 6);
+  // write(STDOUT_FILENO, "\ncpsh> ", 6);
 }
 
 void setup_sigint_handler() {
@@ -25,11 +25,11 @@ void setup_sigint_handler() {
   sigaction(SIGINT, &sa, NULL);
 }
 
-int bsh_exit(char **args) {
+int cpsh_exit(char **args) {
   return 0;  // Return 0 to signal that the shell should exit
 }
 
-char *bsh_read_line() {
+char *cpsh_read_line() {
   int buffer_size = 1024;
   int position = 0;
   char *buffer =
@@ -37,7 +37,7 @@ char *bsh_read_line() {
   int c;                                   // Character read from input
 
   if (!buffer) {
-    fprintf(stderr, "bsh: allocation error\n");  // Print an error message
+    fprintf(stderr, "cpsh: allocation error\n");  // Print an error message
     exit(EXIT_FAILURE);                          // Exit the program
   }
 
@@ -60,14 +60,14 @@ char *bsh_read_line() {
 
       if (!buffer)  // If the buffer is NULL
       {
-        fprintf(stderr, "bsh: allocation error\n");  // Print an error message
+        fprintf(stderr, "cpsh: allocation error\n");  // Print an error message
         exit(EXIT_FAILURE);                          // Exit the program
       }
     }
   }
 }
 
-char **bsh_tokenise(char *line) {
+char **cpsh_tokenise(char *line) {
   int buffer_size = 64;
   int position = 0;
   char **tokens =
@@ -76,7 +76,7 @@ char **bsh_tokenise(char *line) {
   char delimiters[] = " \t\r\n\a";  // Delimiters for tokenising the line
 
   if (!tokens) {
-    fprintf(stderr, "bsh: allocation error\n");  // Print an error message
+    fprintf(stderr, "cpsh: allocation error\n");  // Print an error message
     exit(EXIT_FAILURE);                          // Exit the program
   }
   // tokenize the line
@@ -95,7 +95,7 @@ char **bsh_tokenise(char *line) {
 
       if (!tokens)  // If the tokens are NULL
       {
-        fprintf(stderr, "bsh: allocation error\n");  // Print an error message
+        fprintf(stderr, "cpsh: allocation error\n");  // Print an error message
         exit(EXIT_FAILURE);                          // Exit the program
       }
     }
@@ -108,7 +108,7 @@ char **bsh_tokenise(char *line) {
   return tokens;  // Return the tokens
 }
 
-int bsh_execute(char **args) {
+int cpsh_execute(char **args) {
   pid_t pid;
   int status;
 
@@ -116,7 +116,7 @@ int bsh_execute(char **args) {
     return 1;  // An empty command was entered
   }
   if (strcmp(args[0], "exit") == 0) {
-    return bsh_exit(args);  // Call the bsh_exit function
+    return cpsh_exit(args);  // Call the cpsh_exit function
   }
 
   pid = fork();  // Fork the process
@@ -124,11 +124,11 @@ int bsh_execute(char **args) {
   if (pid == 0) {
     // we are the child process
     if (execvp(args[0], args) == -1) {
-      printf("bsh: %s: command not found\n", args[0]);
+      printf("cpsh: %s: command not found\n", args[0]);
     }
     exit(EXIT_FAILURE);
   } else if (pid < 0) {
-    printf("bsh: error forking\n");
+    printf("cpsh: error forking\n");
   } else {
     // we are the parent process
     waitpid(pid, &status, WUNTRACED);
@@ -137,7 +137,7 @@ int bsh_execute(char **args) {
   return 1;
 }
 
-void bsh_loop(void) {
+void cpsh_loop(void) {
   char *line;      // line of input
   char **args;     // array of arguments
   int status = 1;  // status of the shell
@@ -147,16 +147,16 @@ void bsh_loop(void) {
 
   do {
     if (print_prompt) {
-      printf("\nbsh> ");
+      printf("\ncpsh> ");
       fflush(stdout);
       print_prompt = 0;  // Reset the flag after printing
     } else {
-      printf("bsh> ");
+      printf("cpsh> ");
       fflush(stdout);
     }
-    line = bsh_read_line();      // Fix the assignment of line variable
-    args = bsh_tokenise(line);   // Fix the assignment of args variable
-    status = bsh_execute(args);  // Fix the assignment of status variable
+    line = cpsh_read_line();      // Fix the assignment of line variable
+    args = cpsh_tokenise(line);   // Fix the assignment of args variable
+    status = cpsh_execute(args);  // Fix the assignment of status variable
 
     free(line);  // Free the line variable
     free(args);  // Free the args variable
@@ -164,6 +164,6 @@ void bsh_loop(void) {
 }
 
 int main(int argc, char **argv) {
-  bsh_loop();  // Call the bsh_loop function
+  cpsh_loop();  // Call the cpsh_loop function
   return 0;
 }
