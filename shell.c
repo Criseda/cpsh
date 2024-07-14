@@ -229,9 +229,9 @@ void cpsh_loop(void) {
   do {
     if (print_prompt) {
       char *cwd = get_cwd();
-      printf("\n%s\n", cwd);
+      printf("\n\n%s\n", cwd);
       free(cwd);
-      printf("\ncpsh> ");
+      printf("cpsh> ");
       fflush(stdout);
       print_prompt = 0; // Reset the flag after printing
     } else {
