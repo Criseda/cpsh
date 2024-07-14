@@ -135,19 +135,16 @@ char **cpsh_tokenise(char *line) {
     tokens[position] = token; // Add the token to the tokens array
     position++;               // Increment the position
 
-    if (position >= buffer_size) {
-      buffer_size += 64; // Increase the buffer size
-      tokens = realloc(
-          tokens,
-          buffer_size *
-              sizeof(char *)); // Allocate more memory to store more tokens
-
-      if (!tokens) // If the tokens are NULL
-      {
-        fprintf(stderr, "cpsh: allocation error\n"); // Print an error message
-        free(tokens);                                // Free the tokens
-        exit(EXIT_FAILURE);                          // Exit the program
+    if(position >= buffer_size) {
+      int new_size = buffer_size + 64;
+      char **new_tokens = realloc(tokens, new_size * sizeof(char *));
+      if (!new_tokens) {
+        fprintf(stderr, "cpsh: allocation error\n");
+        free(tokens); // Free the original tokens
+        exit(EXIT_FAILURE);
       }
+      tokens = new_tokens;
+      buffer_size = new_size;
     }
 
     token = strtok(NULL, delimiters); // Get the next token
