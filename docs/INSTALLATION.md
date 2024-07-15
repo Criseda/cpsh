@@ -10,16 +10,13 @@
 ## How to run
 
 1. Clone the repository
-2. Run the following commands:
+2. Run the following commands to build and run the shell:
 
 ```bash
 cd path/to/this/repo
+mkdir build
+cd build
+cmake ..
 make
-./shell
-```
-
-3. To clean up, run:
-
-```bash
-make clean
+../bin/cpsh # to run the shell
 ```
