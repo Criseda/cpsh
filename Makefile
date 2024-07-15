@@ -5,12 +5,20 @@ CC=gcc
 CFLAGS=-Wall
 
 # Target executable name
-TARGET=shell
+TARGET=cpsh
 
-all: $(TARGET)
+# Directory for binaries
+BINDIR=bin
 
-$(TARGET): shell.c
-	$(CC) $(CFLAGS) shell.c -o $(TARGET)
+# Source directory
+SRCDIR=src
+
+# Default target
+all: $(BINDIR)/$(TARGET)
+
+$(BINDIR)/$(TARGET): $(SRCDIR)/shell.c
+	@mkdir -p $(BINDIR)
+	$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(BINDIR)/$(TARGET)

@@ -53,12 +53,12 @@ int cpsh_cd(char **args) {
         }
         // Construct the new path
         strcpy(new_path, home_dir);
-        strcat(new_path, args[1] + 1); // Skip the tilde
+        strcat(new_path, args[1] + 1);  // Skip the tilde
 
         // Change directory to the new path
         if (chdir(new_path) != 0) {
           perror("cpsh");
-          free(new_path); // in case of error, free the allocated memory
+          free(new_path);  // in case of error, free the allocated memory
           return 1;
         }
         // Free the allocated memory
@@ -75,39 +75,39 @@ int cpsh_cd(char **args) {
 }
 
 int cpsh_exit(char **args) {
-  return 0; // Return 0 to signal that the shell should exit
+  return 0;  // Return 0 to signal that the shell should exit
 }
 
 char *cpsh_read_line() {
   int buffer_size = 1024;
   int position = 0;
   char *buffer =
-      malloc(sizeof(char) * buffer_size); // Allocate memory for buffer
-  int c;                                  // Character read from input
+      malloc(sizeof(char) * buffer_size);  // Allocate memory for buffer
+  int c;                                   // Character read from input
 
   if (!buffer) {
-    fprintf(stderr, "cpsh: allocation error\n"); // Print an error message
-    exit(EXIT_FAILURE);                          // Exit the program
+    fprintf(stderr, "cpsh: allocation error\n");  // Print an error message
+    exit(EXIT_FAILURE);                           // Exit the program
   }
 
-  while (1) // while true
+  while (1)  // while true
   {
-    c = getchar();             // Read a character from input
-    if (c == EOF || c == '\n') // If the character is EOF or newline
+    c = getchar();              // Read a character from input
+    if (c == EOF || c == '\n')  // If the character is EOF or newline
     {
-      buffer[position] = '\0'; // Set the end of the string
-      return buffer;           // Return the buffer
+      buffer[position] = '\0';  // Set the end of the string
+      return buffer;            // Return the buffer
     } else {
-      buffer[position] = c; // Add the character to the buffer
+      buffer[position] = c;  // Add the character to the buffer
     }
-    position++; // Increment the position
+    position++;  // Increment the position
 
     if (position >= buffer_size) {
       int new_size = buffer_size + 1024;
       char *new_buffer = realloc(buffer, new_size);
       if (!new_buffer) {
         fprintf(stderr, "cpsh: allocation error\n");
-        free(buffer); // Free the original buffer
+        free(buffer);  // Free the original buffer
         exit(EXIT_FAILURE);
       }
       buffer = new_buffer;
@@ -120,39 +120,39 @@ char **cpsh_tokenise(char *line) {
   int buffer_size = 64;
   int position = 0;
   char **tokens =
-      malloc(buffer_size * sizeof(char *)); // Allocate memory for tokens
+      malloc(buffer_size * sizeof(char *));  // Allocate memory for tokens
   char *token;
-  char delimiters[] = " \t\r\n\a"; // Delimiters for tokenising the line
+  char delimiters[] = " \t\r\n\a";  // Delimiters for tokenising the line
 
   if (!tokens) {
-    fprintf(stderr, "cpsh: allocation error\n"); // Print an error message
-    exit(EXIT_FAILURE);                          // Exit the program
+    fprintf(stderr, "cpsh: allocation error\n");  // Print an error message
+    exit(EXIT_FAILURE);                           // Exit the program
   }
   // tokenize the line
-  token = strtok(line, delimiters); // Get the first token
-  while (token != NULL)             // While there are tokens
+  token = strtok(line, delimiters);  // Get the first token
+  while (token != NULL)              // While there are tokens
   {
-    tokens[position] = token; // Add the token to the tokens array
-    position++;               // Increment the position
+    tokens[position] = token;  // Add the token to the tokens array
+    position++;                // Increment the position
 
-    if(position >= buffer_size) {
+    if (position >= buffer_size) {
       int new_size = buffer_size + 64;
       char **new_tokens = realloc(tokens, new_size * sizeof(char *));
       if (!new_tokens) {
         fprintf(stderr, "cpsh: allocation error\n");
-        free(tokens); // Free the original tokens
+        free(tokens);  // Free the original tokens
         exit(EXIT_FAILURE);
       }
       tokens = new_tokens;
       buffer_size = new_size;
     }
 
-    token = strtok(NULL, delimiters); // Get the next token
+    token = strtok(NULL, delimiters);  // Get the next token
   }
 
-  tokens[position] = NULL; // Set the last token to NULL
+  tokens[position] = NULL;  // Set the last token to NULL
 
-  return tokens; // Return the tokens
+  return tokens;  // Return the tokens
 }
 
 char *get_cwd() {
@@ -187,16 +187,16 @@ int cpsh_execute(char **args) {
   int status;
 
   if (args[0] == NULL) {
-    return 1; // An empty command was entered
+    return 1;  // An empty command was entered
   }
   if (strcmp(args[0], "cd") == 0) {
-    return cpsh_cd(args); // Call the cpsh_cd function
+    return cpsh_cd(args);  // Call the cpsh_cd function
   }
   if (strcmp(args[0], "exit") == 0) {
-    return cpsh_exit(args); // Call the cpsh_exit function
+    return cpsh_exit(args);  // Call the cpsh_exit function
   }
 
-  pid = fork(); // Fork the process
+  pid = fork();  // Fork the process
 
   if (pid == 0) {
     // we are the child process
@@ -215,9 +215,9 @@ int cpsh_execute(char **args) {
 }
 
 void cpsh_loop(void) {
-  char *line;     // line of input
-  char **args;    // array of arguments
-  int status = 1; // status of the shell
+  char *line;      // line of input
+  char **args;     // array of arguments
+  int status = 1;  // status of the shell
 
   // Set up the signal handler for SIGINT
   setup_sigint_handler();
@@ -229,7 +229,7 @@ void cpsh_loop(void) {
       free(cwd);
       printf("cpsh> ");
       fflush(stdout);
-      print_prompt = 0; // Reset the flag after printing
+      print_prompt = 0;  // Reset the flag after printing
     } else {
       char *cwd = get_cwd();
       printf("\n%s\n", cwd);
@@ -241,12 +241,12 @@ void cpsh_loop(void) {
     args = cpsh_tokenise(line);
     status = cpsh_execute(args);
 
-    free(line); // Free the line variable
-    free(args); // Free the args variable
+    free(line);  // Free the line variable
+    free(args);  // Free the args variable
   } while (status);
 }
 
 int main(int argc, char **argv) {
-  cpsh_loop(); // Call the cpsh_loop function
+  cpsh_loop();  // Call the cpsh_loop function
   return 0;
 }
