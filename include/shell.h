@@ -3,10 +3,15 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#define HISTORY_FILE "/.cpsh_history"
+#define HISTORY_SIZE 1000
+
+#include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -32,5 +37,8 @@ int cpsh_execute(char **args);
 char *get_cwd(void);
 void cpsh_printPrompt(void);
 void cpsh_loop(void);
+
+// history.c
+void ensure_history_file_exists();
 
 #endif
