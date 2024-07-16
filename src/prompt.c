@@ -29,16 +29,28 @@ char *get_cwd() {
 
 void cpsh_print_prompt() {
   char *cwd = get_cwd();
+  char hostname[256];
+  char *username = getenv("USER");
+
+  if (gethostname(hostname, 256) != 0) {
+    perror("cpsh");
+    strcpy(hostname, "unknown");
+  }
+
+  if (username == NULL) {
+    username = "unknown";
+  }
+
   printf("\n%s\n", cwd);
+  printf("%s@%s> ", username, hostname);
   free(cwd);
-  printf("cpsh> ");
   fflush(stdout);
 }
 
 void cpsh_loop(void) {
-  char *line;      // line of input
-  char **args;     // array of arguments
-  int status = 1;  // status of the shell
+  char *line;     // line of input
+  char **args;    // array of arguments
+  int status = 1; // status of the shell
 
   // Set up the signal handler for SIGINT
   setup_sigint_handler();
@@ -46,7 +58,7 @@ void cpsh_loop(void) {
   do {
     if (print_prompt) {
       cpsh_print_prompt();
-      print_prompt = 0;  // Reset the flag after printing
+      print_prompt = 0; // Reset the flag after printing
     } else {
       cpsh_print_prompt();
     }
@@ -54,7 +66,7 @@ void cpsh_loop(void) {
     args = cpsh_tokenise(line);
     status = cpsh_execute(args);
 
-    free(line);  // Free the line variable
-    free(args);  // Free the args variable
+    free(line); // Free the line variable
+    free(args); // Free the args variable
   } while (status);
 }
