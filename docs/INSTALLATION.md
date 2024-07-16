@@ -5,7 +5,7 @@
 - A Unix-like operating system: macOS, Linux, BSD. On Windows, WSL is recommended.
 - Windows does not fully support POSIX APIs, therefore it will not compile on windows
 - A gcc compiler
-- [CMake](https://cmake.org/download/)
+- [CMake (3.10 or higher)](https://cmake.org/download/)
 
 ## How to install and run the shell
 
