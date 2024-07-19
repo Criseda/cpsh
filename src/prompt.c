@@ -52,6 +52,8 @@ void cpsh_print_prompt() {
   printf("\n%s\n", cwd);
   printf("%s@%s> ", username, hostname);
   free(cwd);
+  free(hostname);
+  free(username);
   fflush(stdout);
 }
 

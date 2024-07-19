@@ -11,7 +11,7 @@
 HistoryNode *history_head = NULL;
 int history_count = 0;
 
-char **get_last_command() {
+char *get_last_command() {
   if (history_head == NULL) {
     return NULL;
   }
@@ -19,11 +19,10 @@ char **get_last_command() {
   while (current->next != NULL) {
     current = current->next;
   }
-  char **args = cpsh_tokenise(current->command);
-  return args;
+  return current->command;
 }
 
-char **get_command_by_number(int line_number) {
+char *get_command_by_number(int line_number) {
   if (history_head == NULL) {
     return NULL;
   }
@@ -31,8 +30,7 @@ char **get_command_by_number(int line_number) {
   HistoryNode *current = history_head;
   while (current != NULL) {
     if (current_line == line_number) {
-      char **args = cpsh_tokenise(current->command);
-      return args;
+      return strdup(current->command);
     }
     current = current->next;
     current_line++;

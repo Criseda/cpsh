@@ -21,23 +21,6 @@ int cpsh_execute(char **args) {
     return 1;  // An empty command was entered
   }
 
-  if (strcmp(args[0], "!!") == 0) {
-    args = get_last_command();
-    if (args == NULL || args[0] == NULL) {
-      fprintf(stderr, "cpsh: no commands in history\n");
-      return 1;
-    }
-  }
-
-  if (args[0][0] == '!' && isdigit(args[0][1])) {
-    int n = atoi(&args[0][1]);
-    args = get_command_by_number(n);
-    if (args == NULL || args[0] == NULL) {
-      fprintf(stderr, "cpsh: no such command in history\n");
-      return 1;
-    }
-  }
-
   if (handle_builtin_commands(args)) {
     return 1;  // A built-in command was executed
   }

@@ -58,7 +58,7 @@ void list_history(int line_number);
 void search_history(HistoryNode *history_head, const char *keyword);
 void save_history(HistoryNode *history_head);
 void free_history(HistoryNode *history_head);
-char **get_last_command();
-char **get_command_by_number(int line_number);
+char *get_last_command();
+char *get_command_by_number(int line_number);
 
 #endif
