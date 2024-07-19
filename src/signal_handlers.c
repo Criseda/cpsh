@@ -1,4 +1,6 @@
-#include "../include/shell.h"
+#include "../include/signal_handlers.h"
+
+#include "../include/common.h"
 
 // Global flag to control prompt reprinting
 volatile sig_atomic_t print_prompt = 0;

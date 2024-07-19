@@ -1,4 +1,5 @@
-#include "../include/shell.h"
+#include "../include/common.h"
+#include "../include/history.h"
 
 // TODO: history {int n} should truncate the list to the last  n commands
 int cpsh_history(char **args) {

@@ -1,13 +1,7 @@
-#include "../include/shell.h"
+#include "../include/history.h"
 
-#define HISTORY_FILE "/.cpsh_history"
-#define HISTORY_SIZE 1000
-#define MAX_COMMAND_LENGTH 1024
+#include "../include/common.h"
 
-// .cpsh_history should be in the home folder:  ~/.cpsh_history
-
-// history_head is a global variable that points to the head of the history
-// linked list
 HistoryNode *history_head = NULL;
 int history_count = 0;
 

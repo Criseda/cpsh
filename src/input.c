@@ -1,4 +1,5 @@
-#include "../include/shell.h"
+#include "../include/common.h"
+#include "../include/history.h"
 
 #define TOKEN_SIZE 64
 

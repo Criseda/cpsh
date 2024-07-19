@@ -1,4 +1,5 @@
-#include "../include/shell.h"
+#include "../include/builtins.h"
+#include "../include/common.h"
 
 int handle_builtin_commands(char **args) {
   if (strcmp(args[0], "history") == 0) {

@@ -66,6 +66,8 @@
   },
   "editor.formatOnSave": true,
   "files.associations": {
-    "signal.h": "c"
+    "signal.h": "c",
+    "signal_handlers.h": "c",
+    "stdio.h": "c"
   }
 }
