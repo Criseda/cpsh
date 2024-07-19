@@ -3,6 +3,8 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#define TOKEN_SIZE 64
+#define MAX_COMMAND_LENGTH 1024
 #define HISTORY_FILE "/.cpsh_history"
 #define HISTORY_SIZE 1000
 
@@ -17,6 +19,13 @@
 #include <unistd.h>
 
 extern volatile sig_atomic_t print_prompt;
+
+typedef struct HistoryNode {
+  char command[MAX_COMMAND_LENGTH];
+  struct HistoryNode *next;
+} HistoryNode;
+
+extern HistoryNode *history_head;
 
 // singal_handlers.c
 void sigint_handler(int sig);
@@ -40,5 +49,11 @@ void cpsh_loop(void);
 
 // history.c
 void ensure_history_file_exists();
+HistoryNode *load_history();
+void add_to_history(const char *command);
+void list_history(HistoryNode *history_head);
+void search_history(HistoryNode *history_head, const char *keyword);
+void save_history(HistoryNode *history_head);
+void free_history(HistoryNode *history_head);
 
 #endif

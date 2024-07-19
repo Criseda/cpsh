@@ -1,7 +1,9 @@
 #include "../include/shell.h"
 
+#define TOKEN_SIZE 64
+
 char *cpsh_read_line() {
-  int buffer_size = 1024;
+  int buffer_size = BUFSIZ;
   int position = 0;
   char *buffer =
       malloc(sizeof(char) * buffer_size);  // Allocate memory for buffer
@@ -39,7 +41,7 @@ char *cpsh_read_line() {
 }
 
 char **cpsh_tokenise(char *line) {
-  int buffer_size = 64;
+  int buffer_size = TOKEN_SIZE;
   int position = 0;
   char **tokens =
       malloc(buffer_size * sizeof(char *));  // Allocate memory for tokens
@@ -58,7 +60,7 @@ char **cpsh_tokenise(char *line) {
     position++;                // Increment the position
 
     if (position >= buffer_size) {
-      int new_size = buffer_size + 64;
+      int new_size = buffer_size + TOKEN_SIZE;
       char **new_tokens = realloc(tokens, new_size * sizeof(char *));
       if (!new_tokens) {
         fprintf(stderr, "cpsh: allocation error\n");

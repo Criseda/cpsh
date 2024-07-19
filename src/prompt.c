@@ -1,7 +1,7 @@
 #include "../include/shell.h"
 
 char *get_cwd() {
-  char cwd[1024];
+  char cwd[PATH_MAX];
   char *home = getenv("HOME");
 
   if (getcwd(cwd, sizeof(cwd)) == NULL) {
@@ -27,19 +27,27 @@ char *get_cwd() {
   return strdup(cwd);
 }
 
-void cpsh_print_prompt() {
-  char *cwd = get_cwd();
+char *get_hostname() {
   char hostname[256];
-  char *username = getenv("USER");
-
   if (gethostname(hostname, 256) != 0) {
     perror("cpsh");
-    strcpy(hostname, "unknown");
+    return strdup("unknown");
   }
+  return strdup(hostname);
+}
 
+char *get_username() {
+  char *username = getenv("USER");
   if (username == NULL) {
-    username = "unknown";
+    return strdup("unknown");
   }
+  return strdup(username);
+}
+
+void cpsh_print_prompt() {
+  char *cwd = get_cwd();
+  char *hostname = get_hostname();
+  char *username = get_username();
 
   printf("\n%s\n", cwd);
   printf("%s@%s> ", username, hostname);
@@ -52,8 +60,8 @@ void cpsh_loop(void) {
   char **args;     // array of arguments
   int status = 1;  // status of the shell
 
-  // Ensure the history file and directory exist
-  ensure_history_file_exists();
+  // Load the history from the history file
+  history_head = load_history();
 
   // Set up the signal handler for SIGINT
   setup_sigint_handler();
@@ -66,10 +74,17 @@ void cpsh_loop(void) {
       cpsh_print_prompt();
     }
     line = cpsh_read_line();
+    // Add the command to the history
+    add_to_history(line);
     args = cpsh_tokenise(line);
     status = cpsh_execute(args);
 
     free(line);  // Free the line variable
     free(args);  // Free the args variable
   } while (status);
+
+  // Save the history to the history file
+  save_history(history_head);
+  // Free the history linked list
+  free_history(history_head);
 }
