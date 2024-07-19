@@ -49,8 +49,7 @@ void cpsh_print_prompt() {
   char *hostname = get_hostname();
   char *username = get_username();
 
-  printf("\n%s\n", cwd);
-  printf("%s@%s> ", username, hostname);
+  printf("\n%s\n%s@%s> ", cwd, username, hostname);
   free(cwd);
   free(hostname);
   free(username);

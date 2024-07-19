@@ -47,7 +47,7 @@ int cpsh_execute(char **args);
 
 // prompt.c
 char *get_cwd(void);
-void cpsh_printPrompt(void);
+void cpsh_print_prompt(void);
 void cpsh_loop(void);
 
 // history.c
