@@ -64,5 +64,10 @@
   "[cpp]": {
     "editor.defaultFormatter": "ms-vscode.cpptools"
   },
-  "editor.formatOnSave": true
+  "editor.formatOnSave": true,
+  "files.associations": {
+    "signal.h": "c",
+    "signal_handlers.h": "c",
+    "stdio.h": "c"
+  }
 }

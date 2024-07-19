@@ -16,3 +16,11 @@ file(GLOB SOURCES "src/*.c")
 
 # Add the executable
 add_executable(cpsh ${SOURCES})
+
+# Uninstall target
+add_custom_target(uninstall
+    COMMAND ${CMAKE_COMMAND} -E echo "Setting uninstall script as executable..."
+    COMMAND ${CMAKE_COMMAND} -E env chmod +x ${CMAKE_SOURCE_DIR}/uninstall.sh
+    COMMAND ${CMAKE_COMMAND} -E echo "Running uninstall script..."
+    COMMAND ${CMAKE_COMMAND} -E env bash ${CMAKE_SOURCE_DIR}/uninstall.sh
+)
