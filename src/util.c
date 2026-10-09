@@ -1,5 +1,8 @@
 #include "common.h"
 
+#include <fnmatch.h>
+#include <locale.h>
+
 const char *progname = CPSH_NAME;
 
 /* ---- checked allocation ---- */
@@ -288,4 +291,44 @@ void sh_quote(strbuf *sb, const char *s) {
       sb_putc(sb, *p);
   }
   sb_putc(sb, '\'');
+}
+
+/* ---- pattern matching ---- */
+
+/* The user's locale with C collation, or 0 if it cannot be made. The
+ * shell sets its locale once at startup, so it is made once. */
+static locale_t match_locale(void) {
+  static int made;
+  static locale_t loc;
+  if (!made) {
+    made = 1;
+    locale_t base = duplocale(LC_GLOBAL_LOCALE);
+    if (base) {
+      loc = newlocale(LC_COLLATE_MASK, "C", base);
+      if (!loc) freelocale(base);
+    }
+  }
+  return loc;
+}
+
+int pmatch(const char *pat, const char *s) {
+  locale_t loc = match_locale();
+  locale_t old = loc ? uselocale(loc) : 0;
+  int r = fnmatch(pat, s, 0);
+  if (loc) uselocale(old);
+  return r == 0;
+}
+
+static int collate_cmp(const void *a, const void *b) {
+  return strcoll(*(char *const *)a, *(char *const *)b);
+}
+
+int pglob(const char *pat, glob_t *g) {
+  locale_t loc = match_locale();
+  locale_t old = loc ? uselocale(loc) : 0;
+  int r = glob(pat, loc ? GLOB_NOSORT : 0, NULL, g);
+  if (loc) uselocale(old);
+  if (r == 0 && loc)
+    qsort(g->gl_pathv, g->gl_pathc, sizeof(char *), collate_cmp);
+  return r;
 }

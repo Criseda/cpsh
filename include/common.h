@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <glob.h>
 #include <limits.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -106,5 +107,13 @@ int is_number(const char *s);
 int xwrite(int fd, const void *buf, size_t n);
 int move_fd_high(int fd); /* dup to >= 10 with FD_CLOEXEC, closes old */
 void sh_quote(strbuf *sb, const char *s); /* single-quote for re-input */
+
+/* ---- pattern matching ----
+ * fnmatch() and glob() with bracket ranges in character code order, as in
+ * other shells: [A-Z] is the uppercase letters whatever LC_COLLATE says
+ * (macOS orders ranges by collation, where it holds lowercase letters too).
+ * pglob() still sorts its matches by LC_COLLATE. */
+int pmatch(const char *pat, const char *s); /* 1 if s matches pat */
+int pglob(const char *pat, glob_t *g);      /* as glob(pat, 0, NULL, g) */
 
 #endif

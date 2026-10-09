@@ -1,7 +1,9 @@
 #include "exec.h"
 
-#include <fnmatch.h>
 #include <spawn.h>
+#if defined(__linux__)
+#include <stdio_ext.h>
+#endif
 
 #include "builtins.h"
 #include "expand.h"
@@ -279,10 +281,23 @@ static void xtrace(char **assigns, int nassigns, char **argv) {
 
 /* ---- simple commands ---- */
 
+/* Drop output stdout could not write. BSD stdio keeps it after a failed
+ * flush, to write it with whatever comes next (once fd 1 is restored after
+ * `echo x >&-`, say); glibc already drops it. */
+static void discard_stdout(void) {
+#if defined(__linux__)
+  __fpurge(stdout);
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
+    defined(__OpenBSD__) || defined(__DragonFly__)
+  fpurge(stdout);
+#endif
+}
+
 /* Flush a builtin's output; a write error makes it fail. */
 static int flush_builtin(const char *name, int status) {
   if (fflush(stdout) != 0 || ferror(stdout)) {
     int e = errno;
+    discard_stdout();
     clearerr(stdout);
     sh_warn("%s: write error: %s", name, strerror(e));
     return status ? status : 1;
@@ -571,7 +586,7 @@ static int evalcase(struct node *n, int flags) {
   int status = 0;
   for (struct caseitem *ci = n->u.casen.items; ci; ci = ci->next) {
     for (int i = 0; i < ci->npats; i++) {
-      if (fnmatch(expand_pattern(ci->pats[i]), word, 0) == 0) {
+      if (pmatch(expand_pattern(ci->pats[i]), word)) {
         /* run this body, and the following ones while they end in ;& */
         for (;;) {
           status = ci->body ? evaltree(ci->body, ci->fallthrough && ci->next

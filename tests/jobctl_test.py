@@ -38,8 +38,11 @@ class Shell:
                 # started from another shell, cpsh is not the session leader
                 # and the kernel does not discard ^Z sent to its process
                 # group as it does for a session leader's (an orphaned one)
+                # (bash, /bin/sh on macOS, drops PS1 and PS2 when it is not
+                # interactive, so they are passed on the command line)
                 env["CPSH"] = SH
-                os.execve("/bin/sh", ["sh", "-c", '"$CPSH"; :'], env)
+                os.execve("/bin/sh", ["sh", "-c",
+                                      'PS1="$ " PS2="> " "$CPSH"; :'], env)
             os.execve(SH, [SH], env)
         self.buf = ""
         self.expect(r"\$ ")
@@ -196,7 +199,7 @@ def t_fc_rerun():
     check(sh.run("fc -s ec"), "echo 1\n1\n")
     # the commands run replace fc in the history
     check(sh.run("fc -l"), "1\techo one\n2\techo 1\n3\techo 1\n")
-    check(sh.run("fc -e 'sed -i s/1/2/' 3"), "echo 2\n2\n")
+    check(sh.run("fc -e 'sed -i.bak s/1/2/' 3"), "echo 2\n2\n")
     check(sh.run("fc -e false; echo $?"), "1\n")
     check(sh.run("fc -l -2"), "5\techo 2\n6\tfc -e false; echo $?\n")
 
@@ -261,7 +264,7 @@ def t_vi_mode():
     ]:
         check(vi_line(sh, keys), out)
     # @x runs alias _x as keys; v edits the line with $VISUAL
-    sh.run("alias _q=Aqq; VISUAL='sed -i s/a/b/'")
+    sh.run("alias _q=Aqq; VISUAL='sed -i.bak s/a/b/'")
     check(vi_line(sh, "echo b" + ESC + "@q" + ESC + "a" + UP + ESC + "\r"),
           "BQQ")
     sh.buf = ""

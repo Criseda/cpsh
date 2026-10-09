@@ -1,7 +1,5 @@
 #include "expand.h"
 
-#include <fnmatch.h>
-#include <glob.h>
 #include <pwd.h>
 
 #include "exec.h"
@@ -224,14 +222,14 @@ static const char *remove_pattern(const char *val, const char *pat, int suffix,
       size_t i = longest ? len - k : k;
       char save = tmp[i];
       tmp[i] = '\0';
-      int m = fnmatch(pat, tmp, 0) == 0;
+      int m = pmatch(pat, tmp);
       tmp[i] = save;
       if (m) return val + i;
     }
   } else {
     for (size_t k = 0; k <= len; k++) {
       size_t i = longest ? k : len - k;
-      if (fnmatch(pat, val + i, 0) == 0) return ststrndup(val, i);
+      if (pmatch(pat, val + i)) return ststrndup(val, i);
     }
   }
   return val;
@@ -526,7 +524,7 @@ static void add_field(struct xstate *xs, size_t from, size_t to,
   if (globbable) {
     glob_t g;
     char *pat = xpattern(&f, 0);
-    if (glob(pat, 0, NULL, &g) == 0) {
+    if (pglob(pat, &g) == 0) {
       for (size_t i = 0; i < g.gl_pathc; i++)
         arglist_add(out, ststrdup(g.gl_pathv[i]));
       globfree(&g);

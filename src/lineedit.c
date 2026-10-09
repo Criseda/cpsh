@@ -739,7 +739,7 @@ static int vi_glob(const struct editor *e, size_t *from, size_t *to,
   sb_init(&pat);
   sb_putn(&pat, e->buf.s + *from, *to - *from);
   if (!strpbrk(pat.s ? pat.s : "", "*?[")) sb_putc(&pat, '*');
-  int r = glob(pat.s, 0, NULL, g);
+  int r = pglob(pat.s, g);
   sb_free(&pat);
   if (r != 0) {
     if (r == GLOB_NOMATCH) globfree(g);
