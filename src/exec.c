@@ -100,6 +100,7 @@ void reset_after_error(void) {
   while (var_scope_depth() > 0) var_scope_pop();
   redir_reset();
   evalskip = skipcount = loopnest = funcnest = dotnest = 0;
+  special_soft = 0;
   if (toplevel_arena) {
     arena_unref(toplevel_arena);
     toplevel_arena = NULL;
@@ -224,7 +225,7 @@ static int spawn(const char *path, char **argv, pid_t *pid) {
   posix_spawnattr_init(&attr);
   const sigset_t *defs = trap_child_defaults();
   short flags = 0;
-  for (int s = 1; s < 65; s++)
+  for (int s = 1; s < CPSH_NSIG; s++)
     if (sigismember(defs, s) == 1) {
       posix_spawnattr_setsigdefault(&attr, defs);
       flags |= POSIX_SPAWN_SETSIGDEF;
@@ -232,7 +233,7 @@ static int spawn(const char *path, char **argv, pid_t *pid) {
     }
   sigset_t cur;
   sigprocmask(SIG_SETMASK, NULL, &cur);
-  for (int s = 1; s < 65; s++)
+  for (int s = 1; s < CPSH_NSIG; s++)
     if (sigismember(&cur, s) == 1) {
       sigset_t empty;
       sigemptyset(&empty);
@@ -403,7 +404,12 @@ static int evalcommand(struct node *n, int flags) {
       if (assign_all(assigns, nassigns, bi->fn == exec_builtin ? V_EXPORT : 0,
                      0) < 0)
         raise_exception(EX_ERROR);
-      status = flush_builtin(name, bi->fn(argc, argv));
+      {
+        int soft = special_soft;
+        special_soft = 0;
+        status = flush_builtin(name, bi->fn(argc, argv));
+        special_soft = soft;
+      }
       redir_pop();
       break;
 
@@ -417,17 +423,20 @@ static int evalcommand(struct node *n, int flags) {
       }
       if (nassigns) {
         var_scope_push();
-        if (assign_all(assigns, nassigns, V_EXPORT, 1) < 0) {
-          var_scope_pop();
-          redir_pop();
-          status = 1;
-          break;
-        }
+        /* an assignment error is fatal for every kind of command */
+        if (assign_all(assigns, nassigns, V_EXPORT, 1) < 0)
+          raise_exception(EX_ERROR);
       }
-      if (kind == K_FUNC)
+      if (kind == K_FUNC) {
         status = callfunction(fn, argc, argv, flags);
-      else
+      } else {
+        /* a special built-in reached through `command` loses its special
+         * error handling */
+        int soft = special_soft;
+        special_soft = bi->special;
         status = flush_builtin(name, bi->fn(argc, argv));
+        special_soft = soft;
+      }
       if (nassigns) var_scope_pop();
       redir_pop();
       break;
@@ -447,7 +456,8 @@ static int evalcommand(struct node *n, int flags) {
       }
       if (nassigns) {
         var_scope_push();
-        assign_all(assigns, nassigns, V_EXPORT, 1);
+        if (assign_all(assigns, nassigns, V_EXPORT, 1) < 0)
+          raise_exception(EX_ERROR);
       }
       fflush(stdout);
       pid_t pid;

@@ -14,8 +14,6 @@ void lex_init(struct lexer *lx, struct source *src, arena *a) {
   lx->hd_tail = &lx->hd_head;
 }
 
-void lex_done(struct lexer *lx) { (void)lx; }
-
 void lex_add_heredoc(struct lexer *lx, struct redir *r) {
   r->hdnext = NULL;
   *lx->hd_tail = r;
@@ -99,69 +97,20 @@ static void lex_backquote(struct lexer *lx) {
   }
 }
 
-/* Body of $( ... ) after "$(" has been stored. Tracks nested parentheses
- * and case/esac so `case x in a) ...` patterns do not end the substitution
- * early. */
+/* Body of $( ... ) after "$(" has been stored. The parser finds where it
+ * ends, so case patterns, comments and here-documents inside it cannot end
+ * it early; the text it read is recorded and kept as part of the word. */
 static void lex_cmdsub(struct lexer *lx) {
-  int depth = 0, casedepth = 0, wordstart = 1;
-  for (;;) {
-    int c = getc_nl(lx);
-    if (c == PEOF) lex_error(lx, "unterminated $(...)");
-    put(lx, c);
-    if (wordstart && isalpha(c)) {
-      /* collect a plain word to spot the case/esac keywords */
-      char w[5];
-      size_t len = 0;
-      int n;
-      w[len++] = (char)c;
-      while ((n = getc_nl(lx)) != PEOF && (isalnum(n) || n == '_')) {
-        put(lx, n);
-        if (len < 5) w[len] = (char)n;
-        len++;
-      }
-      ungetc_(lx, n);
-      if (len == 4 && (n == PEOF || strchr(" \t\n;&|()", n))) {
-        if (memcmp(w, "case", 4) == 0) casedepth++;
-        if (memcmp(w, "esac", 4) == 0 && casedepth > 0) casedepth--;
-      }
-      wordstart = 0;
-      continue;
-    }
-    switch (c) {
-      case '\\':
-        lex_escape(lx);
-        break;
-      case '\'':
-        lex_squote(lx);
-        break;
-      case '"':
-        lex_dquote(lx);
-        break;
-      case '`':
-        lex_backquote(lx);
-        break;
-      case '$':
-        lex_dollar(lx, 0);
-        break;
-      case '#':
-        if (wordstart) {
-          while ((c = rawc(lx)) != PEOF && c != '\n') put(lx, c);
-          if (c == '\n') put(lx, c);
-        }
-        break;
-      case '(':
-        depth++;
-        break;
-      case ')':
-        if (depth == 0) {
-          if (casedepth == 0) return;
-        } else {
-          depth--;
-        }
-        break;
-    }
-    wordstart = strchr(" \t\n;&|()", c) != NULL;
+  struct source *src = lx->src;
+  int outermost = src->rec == NULL;
+  if (outermost) {
+    src->rec = xmalloc(sizeof(strbuf));
+    sb_init(src->rec);
   }
+  size_t from = src->rec->len;
+  parse_cmdsub(src, lx->a);
+  for (size_t i = from; i < src->rec->len; i++) put(lx, src->rec->s[i]);
+  if (outermost) src_rec_end(src);
 }
 
 /* Called after '$' has been stored. */
@@ -472,60 +421,25 @@ const char *scan_dquote(const char *p) {
   return *p ? p + 1 : p;
 }
 
+/* p points just past "$(". Text from a parsed word is known to be well
+ * formed; other text (prompts, here-document bodies) may not be, and then
+ * the rest of the string is taken as the command. */
 static const char *scan_cmdsub(const char *p) {
-  int depth = 0, casedepth = 0, wordstart = 1;
-  while (*p) {
-    char c = *p;
-    if (wordstart && (strncmp(p, "case", 4) == 0 || strncmp(p, "esac", 4) == 0) &&
-        (!p[4] || strchr(" \t\n;&|()", p[4]))) {
-      casedepth += c == 'c' ? 1 : -1;
-      if (casedepth < 0) casedepth = 0;
-      p += 4;
-      wordstart = 0;
-      continue;
-    }
-    switch (c) {
-      case '\\':
-        if (p[1]) p++;
-        p++;
-        break;
-      case '\'':
-        p = scan_squote(p + 1);
-        break;
-      case '"':
-        p = scan_dquote(p + 1);
-        break;
-      case '`':
-        p = scan_backquote(p + 1);
-        break;
-      case '$':
-        p = scan_dollar_ctx(p, 0);
-        break;
-      case '#':
-        if (wordstart) {
-          while (*p && *p != '\n') p++;
-        } else {
-          p++;
-        }
-        break;
-      case '(':
-        depth++;
-        p++;
-        break;
-      case ')':
-        p++;
-        if (depth == 0) {
-          if (casedepth == 0) return p;
-        } else {
-          depth--;
-        }
-        break;
-      default:
-        p++;
-    }
-    wordstart = strchr(" \t\n;&|()", c) != NULL;
+  struct source *volatile src = src_string(p);
+  arena *volatile a = arena_new();
+  struct jmploc jl, *saved = handler;
+  const char *end;
+  if (setjmp(jl.buf)) {
+    end = p + strlen(p);
+  } else {
+    handler = &jl;
+    parse_cmdsub(src, a);
+    end = p + src->strpos;
   }
-  return p;
+  handler = saved;
+  arena_unref(a);
+  src_free(src);
+  return end;
 }
 
 static const char *scan_dollar_ctx(const char *p, int indq) {

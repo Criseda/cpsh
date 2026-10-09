@@ -34,6 +34,10 @@ struct source {
   int lineno;
   int nextprompt; /* 1 = PS1, 2 = PS2 */
   int eof;
+  /* While non-NULL, every character read is appended here (and removed
+   * again when pushed back), so the lexer can keep the raw text of a
+   * $(...) that the parser has consumed. */
+  strbuf *rec;
 };
 
 struct source *src_string(const char *s);
@@ -42,10 +46,11 @@ void src_free(struct source *s);
 int src_getc(struct source *s);
 void src_ungetc(struct source *s, int c);
 void src_push_alias(struct source *s, const char *text, struct alias *a);
-int src_alias_active(struct source *s, struct alias *a);
 /* Return unread buffered input to the file so children see it. */
 void src_sync(struct source *s);
 /* Drop the remainder of the current line (after an error/interrupt). */
 void src_reset(struct source *s);
+/* Stop recording and free the recording buffer. */
+void src_rec_end(struct source *s);
 
 #endif

@@ -18,6 +18,14 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/* One more than the highest signal number. NSIG is not in POSIX, so it is
+ * hidden by the strict feature macros on some systems. */
+#ifdef NSIG
+#define CPSH_NSIG NSIG
+#else
+#define CPSH_NSIG 65
+#endif
+
 #define CPSH_NAME "cpsh"
 #define CPSH_VERSION "1.0.0"
 

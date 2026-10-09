@@ -331,5 +331,45 @@ got line2'
 t 'stdin shared with children' 'printf "head -n 1\nfirst\necho after\n" > in; "$CPSH" < in' 'first
 after'
 
+# ---------------------------------------------------------------- regressions
+t 'case as an argument in $()' 'x=$(echo case esac); echo "$x"; echo "$(echo a case b)"' 'case esac
+a case b'
+t 'case statement in $()' 'echo $(case a in a) echo m;; esac) $(case b in (b) echo n;; esac)' 'm n'
+t 'here-document in $()' 'x=$(cat <<EOF
+a)b
+EOF
+); echo "$x"' 'a)b'
+t 'comment in $()' 'echo $( # not a )
+echo hi)' 'hi'
+t 'nested $() with parens' 'echo $(echo $(echo "(") ")" )' '( )'
+t 'alias inside $() expands when run' 'alias say=echo
+x=$(say hi); echo $x' 'hi'
+t 'quotes in ${} inside double quotes' 'x=; echo "${x:-"a b"}" "${x:-'"'q'"'}"; set -- ${x:-"c d"}; echo $#' "a b 'q'
+1"
+t 'shift error is fatal' 'set -- a; shift 2; echo notreached' "script.sh: shift: can't shift that many" 2
+t 'unset readonly is fatal' 'readonly r=1; unset r; echo notreached' 'script.sh: r: is read only' 2
+t 'readonly prefix assignment is fatal' 'readonly r=1; r=2 true; echo notreached' 'script.sh: r: is read only' 2
+t 'command makes special built-in errors non-fatal' 'readonly r=1
+command shift 5 2>/dev/null; echo $?
+command unset r 2>/dev/null; echo $?
+command export 1bad 2>/dev/null; echo $?
+command set -Z 2>/dev/null; echo $?' '2
+2
+2
+2'
+t 'bad trap is not fatal' 'trap : NOSUCHSIG 2>/dev/null; echo $?' '1'
+t 'wait interrupted by trap' 'trap "echo got" USR1; (sleep 1; kill -USR1 $$) & sleep 5 & wait $!; echo $?; kill $! 2>/dev/null' 'got
+138'
+t 'arithmetic wraps' 'echo $((9223372036854775807 + 1)) $((-(-9223372036854775807 - 1)))' '-9223372036854775808 -9223372036854775808'
+t 'multi-line history entries' 'printf "echo one\n#cpsh:2\nfor i in 1; do echo \$i\ndone\n" > h
+HISTFILE=$PWD/h "$CPSH" -i -c "history" 2>/dev/null' '    1  echo one
+    2  for i in 1; do echo $i
+done'
+t 'multi-line history survives a save' 'export HISTFILE=$PWD/h2
+"$CPSH" -i -c "history -a \"\$(printf \"a\nb\")\"; history -a c" 2>/dev/null
+"$CPSH" -i -c "history" 2>/dev/null' '    1  a
+b
+    2  c'
+
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]

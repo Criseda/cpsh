@@ -5,6 +5,7 @@
 
 extern volatile sig_atomic_t pending_traps; /* a trapped signal arrived */
 extern volatile sig_atomic_t got_sigint;    /* SIGINT seen (interactive) */
+extern volatile sig_atomic_t last_trapped_sig; /* most recent trapped signal */
 
 void signals_init(int interactive);
 void dotrap(void);          /* run actions of pending trapped signals */

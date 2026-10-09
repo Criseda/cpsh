@@ -32,6 +32,7 @@ struct xstate {
 };
 
 #define F_ASSIGN 1 /* tilde expansion after ':' in assignments */
+#define F_BRACE 2  /* word of a ${...} inside double quotes: "..." still quotes */
 
 static void xinit(struct xstate *xs) { memset(xs, 0, sizeof(*xs)); }
 
@@ -313,20 +314,20 @@ static void expand_brace(struct xstate *xs, const char *p, const char *end,
       return;
     case '-':
       if (use_word)
-        expand_part(xs, op, end, dq, 0);
+        expand_part(xs, op, end, dq, dq ? F_BRACE : 0);
       else if (is_at)
         emit_params(xs, *name, dq);
       else
         xputs(xs, val, strlen(val), attr);
       return;
     case '+':
-      if (!use_word) expand_part(xs, op, end, dq, 0);
+      if (!use_word) expand_part(xs, op, end, dq, dq ? F_BRACE : 0);
       return;
     case '=':
       if (use_word) {
         struct xstate sub;
         xinit(&sub);
-        expand_part(&sub, op, end, dq, 0);
+        expand_part(&sub, op, end, dq, dq ? F_BRACE : 0);
         val = xstring(&sub, 0);
         if (is_at || isdigit((unsigned char)*name) || (n == 1 && !name_len(name)))
           sh_error("%.*s: cannot assign in this way", (int)n, name);
@@ -343,7 +344,7 @@ static void expand_brace(struct xstate *xs, const char *p, const char *end,
         if (op < end) {
           struct xstate sub;
           xinit(&sub);
-          expand_part(&sub, op, end, dq, 0);
+          expand_part(&sub, op, end, dq, dq ? F_BRACE : 0);
           msg = xstring(&sub, 0);
         }
         sh_error("%.*s: %s", (int)n, name, msg);
@@ -430,7 +431,7 @@ static void expand_part(struct xstate *xs, const char *p, const char *end,
         }
         continue;
       case '"':
-        if (dq || xs->heredoc) break;
+        if ((dq && !(flags & F_BRACE)) || xs->heredoc) break;
         {
           const char *q = scan_dquote(p + 1);
           if (q > end) q = end;

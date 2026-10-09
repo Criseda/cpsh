@@ -491,7 +491,13 @@ char *lineedit_read(const char *prompt) {
       default:
         if (c >= 32) {
           char ch = (char)c;
+          int at_end = e.pos == e.buf.len;
           insert(&e, &ch, 1);
+          /* typing at the end of a line that fits: just echo it */
+          if (at_end && e.pwidth + e.buf.len + 1 < (size_t)e.cols) {
+            out(&ch, 1);
+            continue;
+          }
         }
     }
     if (!result) refresh(&e);

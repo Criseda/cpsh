@@ -7,7 +7,8 @@ uses [Semantic Versioning](https://semver.org/).
 ## [1.0.0] - 2026-10-09
 
 A rewrite of the shell around a proper lexer, parser and evaluator, so that
-cpsh implements the POSIX shell command language.
+cpsh implements most of the POSIX shell command language. Job control, `fc`,
+`ulimit`, `LINENO` and the POSIX.1-2024 additions are not implemented yet.
 
 ### Added
 
@@ -46,6 +47,9 @@ cpsh implements the POSIX shell command language.
   benchmark suite runs 33 % faster and uses 28 % less memory.
 - History is kept in a ring buffer (O(1) appends) instead of a linked list
   walked on every command, and entries are no longer fixed 1 KiB blocks.
+  Commands typed over several lines are kept as one entry; in the history
+  file they are preceded by a `#cpsh:N` line giving their number of lines.
+  Files written by older versions still load as before.
 - The prompt is only computed for interactive shells.
 - `exit` takes a status; exit statuses follow POSIX (126/127, 128+signal).
 - CMake builds an optimised binary by default, with warnings enabled, an

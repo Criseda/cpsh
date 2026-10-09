@@ -10,6 +10,7 @@ struct parser {
   struct lexer lx;
   int peeked;
   int alias_next; /* last alias ended in a blank: check the next word too */
+  int noalias;    /* inside $(...): aliases are expanded when it runs */
 };
 
 static int peek(struct parser *P) {
@@ -84,7 +85,7 @@ static void vpush(struct parser *P, void ***arr, int *n, int *cap, void *x) {
 }
 
 static int try_alias(struct parser *P) {
-  if (peek(P) != T_WORD || P->lx.quoted) return 0;
+  if (P->noalias || peek(P) != T_WORD || P->lx.quoted) return 0;
   struct alias *a = alias_lookup(P->lx.text);
   if (!a || a->active) return 0;
   consume(P);
@@ -446,6 +447,7 @@ struct node *parse_command(struct source *src, arena **ap, int *eof) {
   *eof = 0;
   P.peeked = 0;
   P.alias_next = 0;
+  P.noalias = 0;
   lex_init(&P.lx, src, a);
 
   struct node *result = NULL;
@@ -484,7 +486,17 @@ struct node *parse_command(struct source *src, arena **ap, int *eof) {
       result->u.list.n = n;
     }
   }
-  lex_done(&P.lx);
   src->nextprompt = 1;
   return result;
+}
+
+void parse_cmdsub(struct source *src, arena *a) {
+  struct parser P;
+  P.peeked = 0;
+  P.alias_next = 0;
+  P.noalias = 1;
+  lex_init(&P.lx, src, a);
+  skip_newlines(&P);
+  if (peek(&P) != T_RPAREN) parse_compound_list(&P);
+  expect(&P, T_RPAREN);
 }

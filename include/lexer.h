@@ -42,7 +42,6 @@ struct lexer {
 };
 
 void lex_init(struct lexer *lx, struct source *src, arena *a);
-void lex_done(struct lexer *lx);
 void lex_next(struct lexer *lx);
 void lex_add_heredoc(struct lexer *lx, struct redir *r);
 const char *tok_str(int tok);

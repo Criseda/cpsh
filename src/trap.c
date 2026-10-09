@@ -3,10 +3,11 @@
 #include "exec.h"
 #include "shell.h"
 
-#define NSIGS 65
+#define NSIGS CPSH_NSIG
 
 volatile sig_atomic_t pending_traps;
 volatile sig_atomic_t got_sigint;
+volatile sig_atomic_t last_trapped_sig;
 
 static volatile sig_atomic_t sig_pending[NSIGS];
 static char *traps[NSIGS]; /* NULL: default; "": ignore; else action */
@@ -58,6 +59,7 @@ static void on_signal(int sig) {
   if (sig == SIGINT) got_sigint = 1;
   if (sig > 0 && sig < NSIGS && traps[sig]) {
     sig_pending[sig] = 1;
+    last_trapped_sig = sig;
     pending_traps = 1;
   }
 }
@@ -194,6 +196,7 @@ int trap_builtin(int argc, char **argv) {
   for (; i < argc; i++) {
     int s = signal_number(argv[i]);
     if (s < 0 || s == SIGKILL || s == SIGSTOP) {
+      /* POSIX: not an error that aborts the shell, just a failure */
       sh_warn("trap: %s: bad trap", argv[i]);
       status = 1;
       continue;

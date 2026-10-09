@@ -11,6 +11,23 @@
 #include "trap.h"
 #include "vars.h"
 
+int special_soft;
+
+int special_fail(void) {
+  if (!special_soft) raise_exception(EX_ERROR);
+  return 2;
+}
+
+int special_error(const char *fmt, ...) {
+  char msg[512];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(msg, sizeof(msg), fmt, ap);
+  va_end(ap);
+  sh_warn("%s", msg);
+  return special_fail();
+}
+
 static int bad_usage(const char *name, const char *msg) {
   sh_warn("%s: %s", name, msg);
   return 2;
@@ -254,7 +271,7 @@ static int exit_builtin(int argc, char **argv) {
 }
 
 static int set_vars(int argc, char **argv, int flag, const char *name) {
-  int i = 1, status = 0;
+  int i = 1;
   if (i < argc && strcmp(argv[i], "-p") == 0) i++;
   if (i < argc && strcmp(argv[i], "--") == 0) i++;
   if (i >= argc) {
@@ -264,14 +281,12 @@ static int set_vars(int argc, char **argv, int flag, const char *name) {
   for (; i < argc; i++) {
     const char *eq = strchr(argv[i], '=');
     size_t n = eq ? (size_t)(eq - argv[i]) : strlen(argv[i]);
-    if (name_len(argv[i]) != n || n == 0) {
-      sh_warn("%s: %s: bad variable name", name, argv[i]);
-      status = 1;
-      continue;
-    }
-    if (var_set_n(argv[i], n, eq ? eq + 1 : NULL, flag) < 0) status = 1;
+    if (name_len(argv[i]) != n || n == 0)
+      return special_error("%s: %s: bad variable name", name, argv[i]);
+    if (var_set_n(argv[i], n, eq ? eq + 1 : NULL, flag) < 0)
+      return special_fail();
   }
-  return status;
+  return 0;
 }
 
 static int export_builtin(int argc, char **argv) {
@@ -283,7 +298,7 @@ static int readonly_builtin(int argc, char **argv) {
 }
 
 static int unset_builtin(int argc, char **argv) {
-  int funcs = 0, i = 1, status = 0;
+  int funcs = 0, i = 1;
   for (; i < argc && argv[i][0] == '-'; i++) {
     if (strcmp(argv[i], "-f") == 0)
       funcs = 1;
@@ -299,9 +314,9 @@ static int unset_builtin(int argc, char **argv) {
     if (funcs)
       func_unset(argv[i]);
     else if (var_unset(argv[i]) < 0)
-      status = 1;
+      return special_fail();
   }
-  return status;
+  return 0;
 }
 
 static void print_options(int restorable) {
@@ -341,13 +356,10 @@ static int set_builtin(int argc, char **argv) {
           print_options(!on);
           continue;
         }
-        if (setoption_name(argv[++i], on) < 0) {
-          sh_warn("set: %s: invalid option name", argv[i]);
-          return 2;
-        }
+        if (setoption_name(argv[++i], on) < 0)
+          return special_error("set: %s: invalid option name", argv[i]);
       } else if (*p == 'i' || *p == 's' || setoption_letter(*p, on) < 0) {
-        sh_warn("set: -%c: invalid option", *p);
-        return 2;
+        return special_error("set: -%c: invalid option", *p);
       }
     }
   }
@@ -358,13 +370,11 @@ static int set_builtin(int argc, char **argv) {
 static int shift_builtin(int argc, char **argv) {
   int n = 1;
   if (argc > 1) {
-    if (!is_number(argv[1])) sh_error("shift: %s: bad number", argv[1]);
+    if (!is_number(argv[1]))
+      return special_error("shift: %s: bad number", argv[1]);
     n = atoi(argv[1]);
   }
-  if (n > pos.argc) {
-    sh_warn("shift: can't shift that many");
-    return 1;
-  }
+  if (n > pos.argc) return special_error("shift: can't shift that many");
   for (int i = 0; i < n; i++) free(pos.argv[i]);
   memmove(pos.argv, pos.argv + n, (size_t)(pos.argc - n + 1) * sizeof(char *));
   pos.argc -= n;
@@ -388,7 +398,7 @@ static int eval_builtin(int argc, char **argv) {
 static int dot_builtin(int argc, char **argv) {
   int i = 1;
   if (i < argc && strcmp(argv[i], "--") == 0) i++;
-  if (i >= argc) sh_error(".: filename argument required");
+  if (i >= argc) return special_error(".: filename argument required");
   const char *name = argv[i];
   char *path = NULL;
   if (!strchr(name, '/')) {
@@ -412,7 +422,7 @@ static int dot_builtin(int argc, char **argv) {
   }
   int fd = open(path ? path : name, O_RDONLY);
   free(path);
-  if (fd < 0) sh_error(".: %s: %s", name, strerror(errno));
+  if (fd < 0) return special_error(".: %s: %s", name, strerror(errno));
   fd = move_fd_high(fd);
   struct source *src = src_fd(fd, 0);
   exitstatus = 0;
@@ -437,15 +447,23 @@ int exec_builtin(int argc, char **argv) {
     if (!iflag) shell_exit(127);
     return 127;
   }
-  /* restore default dispositions the shell changed for itself */
+  /* restore default dispositions the shell changed for itself, remembering
+   * them in case the exec fails */
   const sigset_t *defs = trap_child_defaults();
-  for (int s = 1; s < 65; s++)
-    if (sigismember(defs, s) == 1) signal(s, SIG_DFL);
+  static struct sigaction saved[CPSH_NSIG];
+  struct sigaction dfl;
+  memset(&dfl, 0, sizeof(dfl));
+  dfl.sa_handler = SIG_DFL;
+  sigemptyset(&dfl.sa_mask);
+  for (int s = 1; s < CPSH_NSIG; s++)
+    if (sigismember(defs, s) == 1) sigaction(s, &dfl, &saved[s]);
   fflush(stdout);
   if (!iflag) shellexec(path, argv + i, var_environ());
-  /* an interactive shell survives a failed exec */
+  /* an interactive shell survives a failed exec, with its handlers back */
   execve(path, argv + i, var_environ());
   int e = errno;
+  for (int s = 1; s < CPSH_NSIG; s++)
+    if (sigismember(defs, s) == 1) sigaction(s, &saved[s], NULL);
   sh_warn("exec: %s: %s", name, strerror(e));
   return e == ENOENT ? 127 : 126;
 }
@@ -454,7 +472,7 @@ static int loopctl(int argc, char **argv, int kind) {
   int n = 1;
   if (argc > 1) {
     if (!is_number(argv[1]) || atoi(argv[1]) < 1)
-      sh_error("%s: %s: bad number", argv[0], argv[1]);
+      return special_error("%s: %s: bad number", argv[0], argv[1]);
     n = atoi(argv[1]);
   }
   if (loopnest == 0) return 0;
@@ -476,7 +494,7 @@ static int return_builtin(int argc, char **argv) {
   int status = exitstatus;
   if (argc > 1) {
     if (!is_number(argv[1]) && !(argv[1][0] == '-' && is_number(argv[1] + 1)))
-      sh_error("return: %s: bad number", argv[1]);
+      return special_error("return: %s: bad number", argv[1]);
     status = atoi(argv[1]) & 255;
   }
   if (funcnest == 0 && dotnest == 0) {

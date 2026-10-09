@@ -2,9 +2,10 @@
 
 Lightweight POSIX command-line shell made in C.
 
-cpsh implements the shell command language of POSIX.1-2017 (XCU chapter 2)
+cpsh implements most of the POSIX shell command language (XCU chapter 2)
 and can run ordinary `/bin/sh` scripts as well as serve as an interactive
-shell with line editing, history and tab completion.
+shell with line editing, history and tab completion. It is not yet fully
+POSIX compliant: see [Not implemented](#not-implemented).
 
 ## [How to install](INSTALLATION.md#installation)
 
@@ -60,10 +61,17 @@ Regular built-ins: `alias` `cd` `command` `echo` `false` `getopts` `hash`
 
 ### Not implemented
 
-- Job control (`set -m`, `fg`, `bg`, `jobs`): background jobs run, can be
-  waited for, and are reported through `$!`, but cannot be moved between
-  foreground and background.
-- The `fc` built-in and `vi` editing mode.
+- Job control (`set -m`, `fg`, `bg`, `jobs`, `%n` job IDs in `kill` and
+  `wait`): background jobs run, can be waited for by process ID, and are
+  reported through `$!`, but cannot be moved between foreground and
+  background. `set -m` is accepted and does nothing.
+- The `fc` and `ulimit` built-ins, and `vi` editing mode (`set -o vi` is
+  accepted and does nothing).
+- The `LINENO` variable, and mail checking (`MAIL`, `MAILCHECK`, `MAILPATH`).
+- `trap` with no operands inside a command substitution prints nothing,
+  rather than the traps of the parent shell.
+- Additions in POSIX.1-2024: `$'...'` quoting, `;&` in `case`, `read -d`,
+  `cd -e` and `printf` argument numbers (`%1$s`).
 
 ## Performance
 

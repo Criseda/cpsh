@@ -102,6 +102,11 @@ struct node {
  * Syntax errors call sh_error(). */
 struct node *parse_command(struct source *src, arena **ap, int *eof);
 
+/* Parse the body of a command substitution, just after "$(", through its
+ * closing ')'. Only the extent matters: the text is parsed again when the
+ * substitution runs. Nodes go in arena a. Syntax errors call sh_error(). */
+void parse_cmdsub(struct source *src, arena *a);
+
 /* The arena of the command currently being parsed, so an error handler can
  * release it after longjmp. */
 extern arena *parse_arena;

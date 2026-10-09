@@ -128,7 +128,7 @@ int jobs_wait(pid_t pid, int *found) {
                     : WIFSIGNALED(st) ? 128 + WTERMSIG(st)
                                       : 1;
       } else if (r < 0 && errno == EINTR) {
-        if (pending_traps) return 128 + SIGINT;
+        if (pending_traps) return 128 + last_trapped_sig;
       } else {
         j->done = 1;
         j->status = 127;

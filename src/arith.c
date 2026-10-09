@@ -7,6 +7,14 @@ struct ap {
   int noeval; /* >0 inside an unevaluated branch of && || ?: */
 };
 
+/* Two's-complement wrap-around, as other shells do, without the undefined
+ * behaviour of signed overflow in C. */
+static long wrap(unsigned long v) { return (long)v; }
+static long wadd(long a, long b) { return wrap((unsigned long)a + (unsigned long)b); }
+static long wsub(long a, long b) { return wrap((unsigned long)a - (unsigned long)b); }
+static long wmul(long a, long b) { return wrap((unsigned long)a * (unsigned long)b); }
+static long wneg(long a) { return wrap(0UL - (unsigned long)a); }
+
 static NORETURN void arith_error(const char *msg) {
   sh_error("arithmetic expression: %s", msg);
 }
@@ -83,7 +91,7 @@ static long unary(struct ap *a) {
       case '+':
         return v;
       case '-':
-        return -v;
+        return wneg(v);
       case '!':
         return !v;
       default:
@@ -115,7 +123,7 @@ static long mul(struct ap *a) {
   long v = unary(a);
   for (;;) {
     if (match_op(a, "*")) {
-      v *= unary(a);
+      v = wmul(v, unary(a));
     } else if (match_op(a, "/") || match_op(a, "%")) {
       char op = a->p[-1];
       long r = unary(a);
@@ -123,7 +131,7 @@ static long mul(struct ap *a) {
         if (a->noeval) continue;
         arith_error("division by zero");
       }
-      if (r == -1) v = op == '/' ? -v : 0; /* avoid LONG_MIN / -1 trap */
+      if (r == -1) v = op == '/' ? wneg(v) : 0; /* avoid LONG_MIN / -1 trap */
       else v = op == '/' ? v / r : v % r;
     } else {
       return v;
@@ -135,9 +143,9 @@ static long add(struct ap *a) {
   long v = mul(a);
   for (;;) {
     if (match_op(a, "+"))
-      v += mul(a);
+      v = wadd(v, mul(a));
     else if (match_op(a, "-"))
-      v -= mul(a);
+      v = wsub(v, mul(a));
     else
       return v;
   }
@@ -268,7 +276,7 @@ static long expr_assign(struct ap *a) {
           v >>= (r & 63);
           break;
         case '*':
-          v *= r;
+          v = wmul(v, r);
           break;
         case '/':
         case '%':
@@ -276,13 +284,13 @@ static long expr_assign(struct ap *a) {
             if (a->noeval) break;
             arith_error("division by zero");
           }
-          v = ops[i][0] == '/' ? (r == -1 ? -v : v / r) : (r == -1 ? 0 : v % r);
+          v = ops[i][0] == '/' ? (r == -1 ? wneg(v) : v / r) : (r == -1 ? 0 : v % r);
           break;
         case '+':
-          v += r;
+          v = wadd(v, r);
           break;
         case '-':
-          v -= r;
+          v = wsub(v, r);
           break;
         case '&':
           v &= r;

@@ -6,6 +6,11 @@
 /* Ring buffer of the last `cap` commands. Entries are numbered from
  * `base` (the oldest) upwards, and numbers stay stable as old entries drop
  * off, so `!n` always means the same command. */
+/* In the history file, an entry spanning several lines is preceded by a
+ * line "#cpsh:N" giving its number of lines. Every other line is one entry,
+ * so files written by older versions read the same. */
+#define MULTILINE_MARK "#cpsh:"
+
 static char **ring;
 static int cap, start, count;
 static int base = 1;
@@ -78,10 +83,29 @@ static void load_file(void) {
   char *line = NULL;
   size_t lcap = 0;
   ssize_t n;
+  strbuf entry;
+  sb_init(&entry);
+  int more = 0; /* lines still to join into a multi-line entry */
   while ((n = getline(&line, &lcap, f)) > 0) {
     while (n > 0 && line[n - 1] == '\n') n--;
+    line[n] = '\0';
+    if (more > 0) {
+      if (entry.len) sb_putc(&entry, '\n');
+      sb_putn(&entry, line, (size_t)n);
+      if (--more == 0) push(entry.s, entry.len);
+      continue;
+    }
+    const size_t ml = sizeof(MULTILINE_MARK) - 1;
+    if (strncmp(line, MULTILINE_MARK, ml) == 0 && is_number(line + ml) &&
+        atoi(line + ml) > 1) {
+      more = atoi(line + ml);
+      entry.len = 0;
+      continue;
+    }
     if (n > 0) push(line, (size_t)n);
   }
+  if (more > 0 && entry.len) push(entry.s, entry.len); /* truncated file */
+  sb_free(&entry);
   free(line);
   fclose(f);
 }
@@ -106,7 +130,13 @@ void history_save(void) {
   if (fd >= 0) {
     FILE *f = fdopen(fd, "w");
     if (f) {
-      for (int i = 0; i < count; i++) fprintf(f, "%s\n", ring[(start + i) % cap]);
+      for (int i = 0; i < count; i++) {
+        const char *h = ring[(start + i) % cap];
+        int lines = 1;
+        for (const char *c = h; *c; c++) lines += *c == '\n';
+        if (lines > 1) fprintf(f, "%s%d\n", MULTILINE_MARK, lines);
+        fprintf(f, "%s\n", h);
+      }
       if (fclose(f) == 0) rename(tmp, path);
       else unlink(tmp);
     } else {

@@ -47,6 +47,7 @@ void src_free(struct source *s) {
     free(sp->s);
     free(sp);
   }
+  src_rec_end(s);
   free(s->buf);
   free(s->line);
   sb_free(&s->hist);
@@ -98,7 +99,7 @@ static int fill(struct source *s) {
   }
 }
 
-int src_getc(struct source *s) {
+static int getc_raw(struct source *s) {
   int c;
   if (s->nunget) return s->unget[--s->nunget];
   while (s->push) {
@@ -138,8 +139,22 @@ int src_getc(struct source *s) {
   return c;
 }
 
+int src_getc(struct source *s) {
+  int c = getc_raw(s);
+  if (s->rec && c != PEOF) sb_putc(s->rec, (char)c);
+  return c;
+}
+
 void src_ungetc(struct source *s, int c) {
   if (s->nunget < 4) s->unget[s->nunget++] = c;
+  if (s->rec && s->rec->len) s->rec->s[--s->rec->len] = '\0';
+}
+
+void src_rec_end(struct source *s) {
+  if (!s->rec) return;
+  sb_free(s->rec);
+  free(s->rec);
+  s->rec = NULL;
 }
 
 void src_push_alias(struct source *s, const char *text, struct alias *a) {
@@ -158,11 +173,6 @@ void src_push_alias(struct source *s, const char *text, struct alias *a) {
   s->push = sp;
 }
 
-int src_alias_active(struct source *s, struct alias *a) {
-  (void)s;
-  return a->active > 0;
-}
-
 void src_sync(struct source *s) {
   if (!s->seekable || s->bufpos >= s->buflen) return;
   off_t back = (off_t)(s->buflen - s->bufpos);
@@ -170,6 +180,7 @@ void src_sync(struct source *s) {
 }
 
 void src_reset(struct source *s) {
+  src_rec_end(s);
   s->nunget = 0;
   while (s->push) {
     struct strpush *sp = s->push;
