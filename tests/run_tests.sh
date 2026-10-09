@@ -358,8 +358,8 @@ command set -Z 2>/dev/null; echo $?' '2
 2
 2'
 t 'bad trap is not fatal' 'trap : NOSUCHSIG 2>/dev/null; echo $?' '1'
-t 'wait interrupted by trap' 'trap "echo got" USR1; (sleep 1; kill -USR1 $$) & sleep 5 & wait $!; echo $?; kill $! 2>/dev/null' 'got
-138'
+t 'wait interrupted by trap' 'trap "echo got" USR1; (sleep 1; kill -USR1 $$) & sleep 5 & wait $!; kill -l $?; kill $! 2>/dev/null' 'got
+USR1'
 t 'arithmetic wraps' 'echo $((9223372036854775807 + 1)) $((-(-9223372036854775807 - 1)))' '-9223372036854775808 -9223372036854775808'
 t 'multi-line history entries' 'printf "echo one\n#cpsh:2\nfor i in 1; do echo \$i\ndone\n" > h
 HISTFILE=$PWD/h "$CPSH" -i -c "history" 2>/dev/null' '    1  echo one
@@ -370,7 +370,7 @@ t 'multi-line history survives a save' 'export HISTFILE=$PWD/h2
 "$CPSH" -i -c "history" 2>/dev/null' '    1  a
 b
     2  c'
-t 'printf too wide with no arguments' 'printf "%0600d" | wc -c' '600'
+t 'printf too wide with no arguments' 'printf "%0600d" | wc -c | tr -d " "' '600'
 
 # ---------------------------------------------------------------- LINENO
 t 'LINENO' 'echo $LINENO
