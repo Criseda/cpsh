@@ -1,237 +1,286 @@
-#include "../include/history.h"
+#include "history.h"
 
-#include "../include/common.h"
+#include "common.h"
+#include "vars.h"
 
-HistoryNode *history_head = NULL;
-int history_count = 0;
+/* Ring buffer of the last `cap` commands. Entries are numbered from
+ * `base` (the oldest) upwards, and numbers stay stable as old entries drop
+ * off, so `!n` always means the same command. */
+/* In the history file, an entry spanning several lines is preceded by a
+ * line "#cpsh:N" giving its number of lines. Every other line is one entry,
+ * so files written by older versions read the same. */
+#define MULTILINE_MARK "#cpsh:"
 
-char *get_last_command() {
-  if (history_head == NULL) {
-    return NULL;
-  }
-  HistoryNode *current = history_head;
-  while (current->next != NULL) {
-    current = current->next;
-  }
-  return current->command;
+static char **ring;
+static int cap, start, count;
+static int base = 1;
+static int entered; /* the newest entry is the command being run */
+
+static void ensure_ring(void) {
+  if (ring) return;
+  const char *hs = var_get("HISTSIZE");
+  cap = hs && is_number(hs) && atoi(hs) > 0 ? atoi(hs) : HISTORY_SIZE;
+  ring = xcalloc((size_t)cap, sizeof(char *));
 }
 
-char *get_command_by_number(int line_number) {
-  if (history_head == NULL) {
-    return NULL;
+static char *history_path(void) {
+  const char *f = var_get("HISTFILE");
+  if (f && *f) return xstrdup(f);
+  const char *home = var_get("HOME");
+  if (!home || !*home) return NULL;
+  size_t n = strlen(home) + sizeof(HISTORY_FILE);
+  char *p = xmalloc(n);
+  snprintf(p, n, "%s%s", home, HISTORY_FILE);
+  return p;
+}
+
+static void push(const char *line, size_t len) {
+  ensure_ring();
+  if (count == cap) {
+    free(ring[start]);
+    ring[start] = NULL;
+    start = (start + 1) % cap;
+    count--;
+    base++;
   }
-  int current_line = 1;
-  HistoryNode *current = history_head;
-  while (current != NULL) {
-    if (current_line == line_number) {
-      return strdup(current->command);
+  ring[(start + count) % cap] = xstrndup(line, len);
+  count++;
+}
+
+int history_first(void) { return base; }
+int history_last(void) { return count ? base + count - 1 : 0; }
+
+const char *history_get(int n) {
+  if (n < base || n >= base + count) return NULL;
+  return ring[(start + n - base) % cap];
+}
+
+void history_add(const char *line) {
+  size_t len = strlen(line);
+  while (len > 0 && line[len - 1] == '\n') len--;
+  size_t i = 0;
+  while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
+  if (i == len) return; /* blank */
+  entered = 1;
+  const char *last = count ? history_get(history_last()) : NULL;
+  if (last && strlen(last) == len && memcmp(last, line, len) == 0) return;
+  push(line, len);
+}
+
+int history_current(void) {
+  return entered && count ? history_last() : history_last() + 1;
+}
+
+void history_replace_current(const char *text) {
+  if (!entered || !count) return;
+  size_t len = strlen(text);
+  while (len > 0 && text[len - 1] == '\n') len--;
+  int i = (start + count - 1) % cap;
+  free(ring[i]);
+  ring[i] = xstrndup(text, len);
+}
+
+void history_clear(void) {
+  for (int i = 0; i < count; i++) {
+    free(ring[(start + i) % cap]);
+    ring[(start + i) % cap] = NULL;
+  }
+  base += count;
+  start = count = 0;
+}
+
+static void load_file(void) {
+  char *path = history_path();
+  if (!path) return;
+  FILE *f = fopen(path, "r");
+  free(path);
+  if (!f) return;
+  char *line = NULL;
+  size_t lcap = 0;
+  ssize_t n;
+  strbuf entry;
+  sb_init(&entry);
+  int more = 0; /* lines still to join into a multi-line entry */
+  while ((n = getline(&line, &lcap, f)) > 0) {
+    while (n > 0 && line[n - 1] == '\n') n--;
+    line[n] = '\0';
+    if (more > 0) {
+      if (entry.len) sb_putc(&entry, '\n');
+      sb_putn(&entry, line, (size_t)n);
+      if (--more == 0) push(entry.s, entry.len);
+      continue;
     }
-    current = current->next;
-    current_line++;
+    const size_t ml = sizeof(MULTILINE_MARK) - 1;
+    if (strncmp(line, MULTILINE_MARK, ml) == 0 && is_number(line + ml) &&
+        atoi(line + ml) > 1) {
+      more = atoi(line + ml);
+      entry.len = 0;
+      continue;
+    }
+    if (n > 0) push(line, (size_t)n);
+  }
+  if (more > 0 && entry.len) push(entry.s, entry.len); /* truncated file */
+  sb_free(&entry);
+  free(line);
+  fclose(f);
+}
+
+void history_init(void) {
+  ensure_ring();
+  load_file();
+}
+
+void history_save(void) {
+  char *path = history_path();
+  if (!path || !ring) {
+    free(path);
+    return;
+  }
+  /* write a temporary file and rename it, so a crash never truncates the
+   * existing history */
+  size_t n = strlen(path) + 8;
+  char *tmp = xmalloc(n);
+  snprintf(tmp, n, "%s.tmp", path);
+  int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (fd >= 0) {
+    FILE *f = fdopen(fd, "w");
+    if (f) {
+      for (int i = 0; i < count; i++) {
+        const char *h = ring[(start + i) % cap];
+        int lines = 1;
+        for (const char *c = h; *c; c++) lines += *c == '\n';
+        if (lines > 1) fprintf(f, "%s%d\n", MULTILINE_MARK, lines);
+        fprintf(f, "%s\n", h);
+      }
+      if (fclose(f) == 0) rename(tmp, path);
+      else unlink(tmp);
+    } else {
+      close(fd);
+      unlink(tmp);
+    }
+  }
+  free(tmp);
+  free(path);
+}
+
+static const char *find_prefix(const char *prefix, size_t n) {
+  for (int i = history_last(); i >= base && i > 0; i--) {
+    const char *h = history_get(i);
+    if (strncmp(h, prefix, n) == 0) return h;
   }
   return NULL;
 }
 
-void list_history(int line_number) {
-  int current_line = 1;
-  for (HistoryNode *current = history_head; current != NULL;
-       current = current->next) {
-    if (line_number == 0 || line_number == current_line) {
-      printf("%d %s\n", current_line, current->command);
-      // If a specific line number was requested and found, stop the loop
-      if (line_number == current_line) {
-        return;
-      }
+char *history_expand(const char *line, int *changed) {
+  strbuf sb;
+  sb_init(&sb);
+  *changed = 0;
+  int squote = 0, dquote = 0;
+  for (const char *p = line; *p; p++) {
+    char c = *p;
+    if (c == '\\' && !squote && p[1]) {
+      sb_putc(&sb, c);
+      sb_putc(&sb, *++p);
+      continue;
     }
-    current_line++;
-  }
-  // If a specific line number was requested but not found, print an error
-  // message
-  if (line_number != 0 && current_line <= line_number) {
-    fprintf(stderr, "History line %d does not exist.\n", line_number);
-  }
-}
-
-void ensure_history_file_exists() {
-  char historyFilePath[PATH_MAX];
-
-  // Get the path to the home directory
-  const char *homeDir = getenv("HOME");
-  if (homeDir == NULL) {
-    fprintf(stderr, "HOME environment variable is not set.\n");
-    exit(EXIT_FAILURE);
-  }
-
-  // Construct the path to the history file
-  snprintf(historyFilePath, sizeof(historyFilePath), "%s%s", homeDir,
-           HISTORY_FILE);
-
-  // Attempt to open or create the file
-  FILE *file = fopen(historyFilePath, "a+");
-  if (file == NULL) {
-    perror("Failed to open history file");
-    exit(EXIT_FAILURE);
-  }
-  fclose(file);
-}
-
-// Load the history from the history file
-HistoryNode *load_history() {
-  ensure_history_file_exists();
-
-  char historyFilePath[PATH_MAX];
-
-  // Get the path to the home directory
-  const char *homeDir = getenv("HOME");
-  if (homeDir == NULL) {
-    fprintf(stderr, "HOME environment variable is not set.\n");
-    exit(EXIT_FAILURE);
-  }
-
-  // Construct the path to the history file
-  snprintf(historyFilePath, sizeof(historyFilePath), "%s%s", homeDir,
-           HISTORY_FILE);
-
-  // Attempt to open the file
-  FILE *file = fopen(historyFilePath, "r");
-  if (file == NULL) {
-    perror("Failed to open history file");
-    exit(EXIT_FAILURE);
-  }
-
-  // Check if the history is already loaded
-  if (history_head != NULL) {
-    fprintf(stderr, "History is already loaded.\n");
-    exit(EXIT_FAILURE);
-  }
-
-  // Read each line from the file and add it to the history
-  char command[MAX_COMMAND_LENGTH];
-  while (fgets(command, sizeof(command), file) != NULL) {
-    // Remove the newline character from the end of the command
-    size_t length = strlen(command);
-    if (command[length - 1] == '\n') {
-      command[length - 1] = '\0';
+    if (c == '\'' && !dquote) squote = !squote;
+    if (c == '"' && !squote) dquote = !dquote;
+    if (c != '!' || squote) {
+      sb_putc(&sb, c);
+      continue;
     }
-
-    // Add the command to the history
-    add_to_history(command);
+    const char *ev = NULL;
+    const char *q = p + 1;
+    if (*q == '!') {
+      ev = count ? history_get(history_last()) : NULL;
+      q++;
+    } else if (isdigit((unsigned char)*q) ||
+               (*q == '-' && isdigit((unsigned char)q[1]))) {
+      int neg = *q == '-';
+      if (neg) q++;
+      int n = atoi(q);
+      while (isdigit((unsigned char)*q)) q++;
+      ev = history_get(neg ? history_last() + 1 - n : n);
+    } else if (isalpha((unsigned char)*q) || *q == '_' || *q == '.' ||
+               *q == '/') {
+      const char *e = q;
+      while (*e && !strchr(" \t\n;&|()<>\"'", *e)) e++;
+      ev = find_prefix(q, (size_t)(e - q));
+      q = e;
+    } else {
+      sb_putc(&sb, c); /* lone '!' (e.g. pipeline negation) */
+      continue;
+    }
+    if (!ev) {
+      sh_warn("%.*s: event not found", (int)(q - p), p);
+      sb_free(&sb);
+      return NULL;
+    }
+    sb_puts(&sb, ev);
+    *changed = 1;
+    p = q - 1;
   }
-
-  fclose(file);
-  return history_head;
+  return sb_detach(&sb);
 }
 
-void remove_oldest_command() {
-  if (history_head == NULL) return;
-  HistoryNode *temp = history_head;
-  history_head = history_head->next;
-  free(temp);
-  history_count--;
-}
-
-// Add a command to the history
-void add_to_history(const char *command) {
-  // If the history is at max capacity, remove the oldest command
-  if (history_count >= HISTORY_SIZE) {
-    remove_oldest_command();
+int history_builtin(int argc, char **argv) {
+  ensure_ring();
+  if (argc < 2) {
+    for (int i = base; i <= history_last(); i++)
+      printf("%5d  %s\n", i, history_get(i));
+    return 0;
   }
-
-  // Allocate memory for the new history node
-  HistoryNode *node = malloc(sizeof(HistoryNode));
-  if (node == NULL) {
-    perror("Failed to allocate memory for history node");
-    exit(EXIT_FAILURE);
-  }
-  strncpy(node->command, command, sizeof(node->command) - 1);
-  node->command[sizeof(node->command) - 1] = '\0';  // Ensure null-termination
-  node->next = NULL;
-
-  // If the history is empty, directly add the new command
-  if (history_head == NULL) {
-    history_head = node;
+  const char *opt = argv[1];
+  if (strcmp(opt, "-c") == 0) {
+    history_clear();
+  } else if (strcmp(opt, "-w") == 0) {
+    history_save();
+  } else if (strcmp(opt, "-r") == 0) {
+    load_file();
+  } else if (strcmp(opt, "-a") == 0) {
+    if (argc < 3) {
+      sh_warn("history: -a: missing argument");
+      return 2;
+    }
+    strbuf sb;
+    sb_init(&sb);
+    for (int i = 2; i < argc; i++) {
+      if (i > 2) sb_putc(&sb, ' ');
+      sb_puts(&sb, argv[i]);
+    }
+    history_add(sb.s);
+    sb_free(&sb);
+  } else if (strcmp(opt, "-n") == 0) {
+    if (argc < 3 || !is_number(argv[2])) {
+      sh_warn("history: -n: missing or invalid number");
+      return 2;
+    }
+    int n = atoi(argv[2]);
+    const char *h = history_get(n);
+    if (!h) {
+      sh_warn("history: %d: no such entry", n);
+      return 1;
+    }
+    printf("%5d  %s\n", n, h);
+  } else if (strcmp(opt, "-s") == 0) {
+    if (argc < 3) {
+      sh_warn("history: -s: missing argument");
+      return 2;
+    }
+    for (int i = base; i <= history_last(); i++)
+      if (strstr(history_get(i), argv[2])) printf("%5d  %s\n", i, history_get(i));
+  } else if (is_number(opt)) {
+    /* last n entries */
+    int n = atoi(opt);
+    int from = history_last() - n + 1;
+    if (from < base) from = base;
+    for (int i = from; i <= history_last() && i > 0; i++)
+      printf("%5d  %s\n", i, history_get(i));
   } else {
-    // Find the last node in the history
-    HistoryNode *current = history_head;
-    while (current->next != NULL) {
-      current = current->next;
-    }
-
-    // Check if the last command is the same as the command to be added
-    if (strcmp(current->command, command) == 0) {
-      free(node);  // Do not add if it's a duplicate of the last command
-      return;
-    }
-
-    // Check if the command is !n, !!, sudo !!, or sudo !n and skip adding if it
-    // is
-    if (strcmp(command, "!!") == 0 ||
-        (command[0] == '!' && isdigit(command[1])) ||
-        strcmp(command, "sudo !!") == 0 ||
-        (strncmp(command, "sudo !", 6) == 0 && isdigit(command[6]))) {
-      free(node);  // Do not add these commands to the history
-      return;
-    }
-
-    // Add the new node to the end of the history
-    current->next = node;
+    sh_warn("history: %s: invalid option", opt);
+    fputs("usage: history [n | -c | -w | -r | -a cmd | -n n | -s word]\n",
+          stderr);
+    return 2;
   }
-  history_count++;  // Increment the history count
-}
-
-// Search the history by keyword
-void search_history(HistoryNode *history_head, const char *keyword) {
-  int index = 1;
-  HistoryNode *current = history_head->next;
-  while (current != NULL) {
-    if (strstr(current->command, keyword) != NULL) {
-      printf("%d: %s\n", index, current->command);
-    }
-    current = current->next;
-    index++;
-  }
-}
-
-// Save the history to the history file
-void save_history(HistoryNode *history_head) {
-  ensure_history_file_exists();
-
-  char historyFilePath[PATH_MAX];
-
-  // Get the path to the home directory
-  const char *homeDir = getenv("HOME");
-  if (homeDir == NULL) {
-    fprintf(stderr, "HOME environment variable is not set.\n");
-    exit(EXIT_FAILURE);
-  }
-
-  // Construct the path to the history file
-  snprintf(historyFilePath, sizeof(historyFilePath), "%s%s", homeDir,
-           HISTORY_FILE);
-
-  // Attempt to open the file
-  FILE *file = fopen(historyFilePath, "w");
-  if (file == NULL) {
-    perror("Failed to open history file");
-    exit(EXIT_FAILURE);
-  }
-
-  // Write each command to the file
-  HistoryNode *current = history_head;
-  while (current != NULL) {
-    fprintf(file, "%s\n", current->command);
-    current = current->next;
-  }
-
-  fclose(file);
-}
-
-// Free the history linked list
-void free_history(HistoryNode *history_head) {
-  HistoryNode *current = history_head;
-  while (current != NULL) {
-    HistoryNode *next = current->next;
-    free(current);
-    current = next;
-  }
+  return 0;
 }
