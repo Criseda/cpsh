@@ -84,6 +84,27 @@ class Shell:
         self.expect(re.escape(cmd) + "\n")
         return self.expect(r"((?:.|\n)*?)\$ ").group(1)
 
+    def wait(self):
+        """Wait for the shell to exit and return its status. The output is
+        read meanwhile: on macOS a process closing the terminal waits for
+        what it wrote to be read."""
+        end = time.time() + TIMEOUT
+        while True:
+            pid, status = os.waitpid(self.pid, os.WNOHANG)
+            if pid:
+                self.pid = 0
+                return status
+            if time.time() > end:
+                raise Failure("shell did not exit; output:\n%s" % self.buf)
+            r, _, _ = select.select([self.fd], [], [], 0.1)
+            try:
+                data = os.read(self.fd, 4096) if r else b""
+            except OSError:
+                data = b""
+            if not data:
+                time.sleep(0.05)
+            self.buf += data.decode(errors="replace").replace("\r", "")
+
     def close(self):
         if self.pid:
             try:
@@ -140,7 +161,7 @@ def t_stop_and_resume():
     time.sleep(0.3)
     sh.send("\x1a")
     sh.expect(r"\[1\]\+  Stopped                 sleep 30\n\$ ")
-    check(sh.run("echo $?"), "148\n")
+    check(sh.run("kill -l $?"), "TSTP\n")
     check(sh.run("jobs"), "[1]+  Stopped                 sleep 30\n")
     check(sh.run("bg"), "[1]+ sleep 30 &\n")
     check(sh.run("jobs"), "[1]+  Running                 sleep 30 &\n")
@@ -149,15 +170,17 @@ def t_stop_and_resume():
 
 def t_fg_gives_terminal():
     sh = new_shell(wrapped=True)
-    sh.line("cat")
+    # not cat: on macOS a read from the terminal fails with EINTR after a
+    # stop and continue, and cat gives up (in any shell); read retries
+    job = "(read x; echo $x)"
+    sh.line(job)
     time.sleep(0.3)
     sh.send("\x1a")
-    sh.expect(r"Stopped                 cat\n\$ ")
+    sh.expect(r"Stopped                 %s\n\$ " % re.escape(job))
     sh.line("fg")
-    sh.expect(r"fg\ncat\n")
+    sh.expect(r"fg\n%s\n" % re.escape(job))
     sh.line("hello")
-    sh.expect(r"hello\nhello\n")  # echoed by the terminal, then by cat
-    sh.send("\x04")
+    sh.expect(r"hello\nhello\n")  # echoed by the terminal, then by the job
     sh.expect(r"\$ ")
     check(sh.run("echo $?; jobs"), "0\n")
 
@@ -374,9 +397,7 @@ def t_exit_with_stopped_jobs():
     sh.expect(r"Stopped                 sleep 30\n\$ ")
     check(sh.run("exit"), "You have stopped jobs.\n")
     sh.line("exit")
-    _, status = os.waitpid(sh.pid, 0)
-    check(os.WIFEXITED(status), True)
-    sh.pid = 0
+    check(os.WIFEXITED(sh.wait()), True)
 
 
 def t_done_notification():
