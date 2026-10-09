@@ -47,6 +47,7 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME jobctl
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/jobctl_test.py
                    $<TARGET_FILE:cpsh>)
+  set_tests_properties(jobctl PROPERTIES TIMEOUT 600)
 endif()
 
 # Uninstall target

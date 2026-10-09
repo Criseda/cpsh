@@ -19,7 +19,8 @@ import time
 
 SH = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else sys.exit(
     "usage: jobctl_test.py path/to/shell")
-TIMEOUT = 10
+TIMEOUT = 10        # for one expect()
+CASE_TIMEOUT = 60   # for a whole case
 
 
 class Failure(Exception):
@@ -429,16 +430,27 @@ def t_noninteractive_set_m():
     check(out.decode().replace("\r", ""), "own group\n")
 
 
+def timed_out(signum, frame):
+    raise Failure("did not finish in %d seconds" % CASE_TIMEOUT)
+
+
 def main():
     cases = [(k, v) for k, v in globals().items() if k.startswith("t_")]
     passed = failed = 0
+    # a case blocked outside expect() (writing to a full terminal, say)
+    # fails rather than hanging the run
+    signal.signal(signal.SIGALRM, timed_out)
     for name, fn in cases:
+        signal.alarm(CASE_TIMEOUT)
         try:
             fn()
+            signal.alarm(0)
             passed += 1
+            print("ok: %s" % name[2:], flush=True)
         except Failure as e:
+            signal.alarm(0)
             failed += 1
-            print("FAIL: %s\n%s\n" % (name[2:], e))
+            print("FAIL: %s\n%s\n" % (name[2:], e), flush=True)
         while shells:
             shells.pop().close()
     print("passed: %d, failed: %d" % (passed, failed))
