@@ -2,7 +2,9 @@
 
 ## Requirements
 
-- A POSIX system: Linux, macOS or BSD. On Windows, use WSL.
+- A POSIX system. Tested on Linux; macOS and BSD should work but are not
+  tested yet ([#14](https://github.com/Criseda/cpsh/issues/14)). On Windows,
+  use WSL.
 - A C99 compiler (gcc or clang)
 - [CMake (3.10 or higher)](https://cmake.org/download/)
 
