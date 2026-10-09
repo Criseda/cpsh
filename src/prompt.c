@@ -1,57 +1,93 @@
-#include "../include/common.h"
+#include "prompt.h"
 
-char *get_cwd() {
-  char cwd[PATH_MAX];
-  char *home = getenv("HOME");
+#include <pwd.h>
 
-  if (getcwd(cwd, sizeof(cwd)) == NULL) {
-    perror("cpsh");
-    return strdup("unknown");
+#include "common.h"
+#include "expand.h"
+#include "history.h"
+#include "vars.h"
+
+/* Directory for display: $HOME (only as a whole path component) becomes ~. */
+static void display_cwd(strbuf *sb) {
+  const char *pwd = var_get("PWD");
+  char buf[PATH_MAX];
+  if (!pwd || *pwd != '/') pwd = getcwd(buf, sizeof(buf)) ? buf : "?";
+  const char *home = var_get("HOME");
+  size_t hl = home ? strlen(home) : 0;
+  while (hl > 1 && home[hl - 1] == '/') hl--;
+  if (hl > 1 && strncmp(pwd, home, hl) == 0 &&
+      (pwd[hl] == '\0' || pwd[hl] == '/')) {
+    sb_putc(sb, '~');
+    sb_puts(sb, pwd + hl);
+  } else {
+    sb_puts(sb, pwd);
   }
+}
 
-  if (home && strcmp(cwd, home) == 0) {
-    return strdup("~");
+static const char *username(void) {
+  static char *cached;
+  if (cached) return cached;
+  const char *u = var_get("USER");
+  if (!u) u = var_get("LOGNAME");
+  if (!u) {
+    struct passwd *pw = getpwuid(getuid());
+    u = pw ? pw->pw_name : "unknown";
   }
+  return cached = xstrdup(u);
+}
 
-  if (home && strstr(cwd, home) == cwd) {
-    char *relative_path = cwd + strlen(home);
-    if (*relative_path == '\0') {
-      return strdup("~");
+static const char *hostname(void) {
+  static char host[256];
+  if (!host[0] && gethostname(host, sizeof(host) - 1) != 0)
+    strcpy(host, "unknown");
+  return host;
+}
+
+char *prompt_string(int which) {
+  strbuf sb;
+  sb_init(&sb);
+  const char *ps = var_get(which == 1 ? "PS1" : "PS2");
+  if (which == 2) {
+    sb_puts(&sb, ps ? ps : "> ");
+    return sb_detach(&sb);
+  }
+  if (!ps) {
+    /* cpsh's default: blank line, directory, then user@host> */
+    sb_putc(&sb, '\n');
+    display_cwd(&sb);
+    sb_putc(&sb, '\n');
+    sb_puts(&sb, username());
+    sb_putc(&sb, '@');
+    sb_puts(&sb, hostname());
+    sb_puts(&sb, geteuid() == 0 ? "# " : "> ");
+    return sb_detach(&sb);
+  }
+  /* POSIX: "!" is the history number ("!!" is a literal "!"), then
+   * parameter expansion */
+  strbuf raw;
+  sb_init(&raw);
+  for (const char *p = ps; *p; p++) {
+    if (*p == '!' && p[1] == '!') {
+      sb_putc(&raw, '!');
+      p++;
+    } else if (*p == '!') {
+      char num[16];
+      snprintf(num, sizeof(num), "%d", history_last() + 1);
+      sb_puts(&raw, num);
     } else {
-      char *result = malloc(strlen(relative_path) + 2);
-      sprintf(result, "~%s", relative_path);
-      return result;
+      sb_putc(&raw, *p);
     }
   }
-
-  return strdup(cwd);
-}
-
-char *get_hostname() {
-  char hostname[256];
-  if (gethostname(hostname, 256) != 0) {
-    perror("cpsh");
-    return strdup("unknown");
+  stackmark m = stmark();
+  struct jmploc jl, *saved = handler;
+  if (setjmp(jl.buf) == 0) {
+    handler = &jl;
+    sb_puts(&sb, expand_prompt(raw.s ? raw.s : ""));
+  } else {
+    sb_puts(&sb, raw.s ? raw.s : "");
   }
-  return strdup(hostname);
-}
-
-char *get_username() {
-  char *username = getenv("USER");
-  if (username == NULL) {
-    return strdup("unknown");
-  }
-  return strdup(username);
-}
-
-void cpsh_print_prompt() {
-  char *cwd = get_cwd();
-  char *hostname = get_hostname();
-  char *username = get_username();
-
-  printf("\n%s\n%s@%s> ", cwd, username, hostname);
-  free(cwd);
-  free(hostname);
-  free(username);
-  fflush(stdout);
+  handler = saved;
+  strelease(m);
+  sb_free(&raw);
+  return sb_detach(&sb);
 }

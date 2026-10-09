@@ -1,110 +1,186 @@
-#include "../include/common.h"
-#include "../include/history.h"
+#include "input.h"
 
-#define TOKEN_SIZE 64
+#include "alias.h"
+#include "history.h"
+#include "lineedit.h"
+#include "prompt.h"
+#include "shell.h"
+#include "trap.h"
 
-char *cpsh_read_line() {
-  int buffer_size = BUFSIZ;
-  int position = 0;
-  char *buffer =
-      malloc(sizeof(char) * buffer_size);  // Allocate memory for buffer
-  int c;                                   // Character read from input
+#define BUFSZ 8192
 
-  if (!buffer) {
-    fprintf(stderr, "cpsh: allocation error\n");  // Print an error message
-    exit(EXIT_FAILURE);                           // Exit the program
+struct source *src_string(const char *s) {
+  struct source *src = xcalloc(1, sizeof(*src));
+  src->fd = -1;
+  src->str = s;
+  src->lineno = 1;
+  src->nextprompt = 1;
+  return src;
+}
+
+struct source *src_fd(int fd, int interactive) {
+  struct source *src = xcalloc(1, sizeof(*src));
+  src->fd = fd;
+  src->interactive = interactive;
+  src->lineno = 1;
+  src->nextprompt = 1;
+  if (!interactive) {
+    /* stdin is shared with the commands we run, so we must not read past
+     * the end of the current command: seek back if we can, otherwise read
+     * one byte at a time. Other descriptors are private to the shell. */
+    if (fd == 0) {
+      if (lseek(fd, 0, SEEK_CUR) >= 0)
+        src->seekable = 1;
+      else
+        src->unbuffered = 1;
+    }
+    src->buf = xmalloc(BUFSZ);
   }
+  return src;
+}
 
-  while (1)  // while true
-  {
-    c = getchar();              // Read a character from input
-    if (c == EOF || c == '\n')  // If the character is EOF or newline
-    {
-      buffer[position] = '\0';  // Set the end of the string
+void src_free(struct source *s) {
+  while (s->push) {
+    struct strpush *sp = s->push;
+    s->push = sp->prev;
+    if (sp->alias) sp->alias->active--;
+    free(sp->s);
+    free(sp);
+  }
+  free(s->buf);
+  free(s->line);
+  sb_free(&s->hist);
+  free(s);
+}
 
-      // Check for special commands !!, !n, sudo !!, sudo !n
-      if (strcmp(buffer, "!!") == 0) {
-        free(buffer);                       // Free the current buffer
-        return strdup(get_last_command());  // Return a copy of the last command
-      } else if (buffer[0] == '!' && isdigit(buffer[1])) {
-        int n = atoi(&buffer[1]);  // Convert the number part to an integer
-        free(buffer);              // Free the current buffer
-        return strdup(
-            get_command_by_number(n));  // Return a copy of the nth command
-      } else if (strcmp(buffer, "sudo !!") == 0) {
-        char *last_command = get_last_command();
-        char *sudo_command =
-            malloc(strlen(last_command) + 6);  // "sudo " + command + '\0'
-        strcpy(sudo_command, "sudo ");
-        strcat(sudo_command, last_command);
-        free(buffer);         // Free the current buffer
-        return sudo_command;  // Return the sudo command
-      } else if (strncmp(buffer, "sudo !", 6) == 0 && isdigit(buffer[6])) {
-        int n = atoi(&buffer[6]);  // Convert the number part to an integer
-        char *nth_command = get_command_by_number(n);
-        char *sudo_command =
-            malloc(strlen(nth_command) + 6);  // "sudo " + command + '\0'
-        strcpy(sudo_command, "sudo ");
-        strcat(sudo_command, nth_command);
-        free(buffer);         // Free the current buffer
-        return sudo_command;  // Return the sudo command
-      }
-
-      return buffer;  // Return the buffer
-    } else {
-      buffer[position] = c;  // Add the character to the buffer
+static int fetch_line(struct source *s) {
+  free(s->line);
+  s->line = NULL;
+  s->linepos = s->linelen = 0;
+  if (s->nextprompt == 1) s->hist.len = 0;
+  char *prompt = prompt_string(s->nextprompt);
+  char *line = lineedit_read(prompt);
+  free(prompt);
+  if (!line) {
+    if (errno == EINTR) raise_exception(EX_INT);
+    return 0;
+  }
+  if (strchr(line, '!')) {
+    int changed;
+    char *exp = history_expand(line, &changed);
+    free(line);
+    if (!exp) {
+      /* event not found: drop the whole command */
+      s->hist.len = 0;
+      raise_exception(EX_INT);
     }
-    position++;  // Increment the position
+    if (changed) fputs(exp, stderr);
+    line = exp;
+  }
+  s->line = line;
+  s->linelen = strlen(line);
+  sb_puts(&s->hist, line);
+  s->nextprompt = 2;
+  return 1;
+}
 
-    if (position >= buffer_size) {
-      int new_size = buffer_size + 1024;
-      char *new_buffer = realloc(buffer, new_size);
-      if (!new_buffer) {
-        fprintf(stderr, "cpsh: allocation error\n");
-        free(buffer);  // Free the original buffer
-        exit(EXIT_FAILURE);
-      }
-      buffer = new_buffer;
-      buffer_size = new_size;
+static int fill(struct source *s) {
+  for (;;) {
+    ssize_t n = read(s->fd, s->buf, s->unbuffered ? 1 : BUFSZ);
+    if (n < 0 && errno == EINTR) {
+      dotrap();
+      continue;
     }
+    if (n <= 0) return 0;
+    s->bufpos = 0;
+    s->buflen = (size_t)n;
+    return 1;
   }
 }
 
-char **cpsh_tokenise(char *line) {
-  int buffer_size = TOKEN_SIZE;
-  int position = 0;
-  char **tokens =
-      malloc(buffer_size * sizeof(char *));  // Allocate memory for tokens
-  char *token;
-  char delimiters[] = " \t\r\n\a";  // Delimiters for tokenising the line
-
-  if (!tokens) {
-    fprintf(stderr, "cpsh: allocation error\n");  // Print an error message
-    exit(EXIT_FAILURE);                           // Exit the program
+int src_getc(struct source *s) {
+  int c;
+  if (s->nunget) return s->unget[--s->nunget];
+  while (s->push) {
+    struct strpush *sp = s->push;
+    if (sp->s[sp->pos]) return (unsigned char)sp->s[sp->pos++];
+    s->push = sp->prev;
+    if (sp->alias) sp->alias->active--;
+    free(sp->s);
+    free(sp);
   }
-  // tokenize the line
-  token = strtok(line, delimiters);  // Get the first token
-  while (token != NULL)              // While there are tokens
-  {
-    tokens[position] = token;  // Add the token to the tokens array
-    position++;                // Increment the position
-
-    if (position >= buffer_size) {
-      int new_size = buffer_size + TOKEN_SIZE;
-      char **new_tokens = realloc(tokens, new_size * sizeof(char *));
-      if (!new_tokens) {
-        fprintf(stderr, "cpsh: allocation error\n");
-        free(tokens);  // Free the original tokens
-        exit(EXIT_FAILURE);
-      }
-      tokens = new_tokens;
-      buffer_size = new_size;
+  if (s->eof) return PEOF;
+  if (s->fd < 0) {
+    c = (unsigned char)s->str[s->strpos];
+    if (!c) {
+      s->eof = 1;
+      return PEOF;
     }
-
-    token = strtok(NULL, delimiters);  // Get the next token
+    s->strpos++;
+  } else if (s->interactive) {
+    if (s->linepos >= s->linelen && !fetch_line(s)) {
+      s->eof = 1;
+      return PEOF;
+    }
+    c = (unsigned char)s->line[s->linepos++];
+  } else {
+    if (s->bufpos >= s->buflen && !fill(s)) {
+      s->eof = 1;
+      return PEOF;
+    }
+    c = (unsigned char)s->buf[s->bufpos++];
   }
+  if (c == '\n') s->lineno++;
+  if (vflag && s->fd >= 0) { /* set -v: echo input as it is read */
+    char ch = (char)c;
+    xwrite(2, &ch, 1);
+  }
+  return c;
+}
 
-  tokens[position] = NULL;  // Set the last token to NULL
+void src_ungetc(struct source *s, int c) {
+  if (s->nunget < 4) s->unget[s->nunget++] = c;
+}
 
-  return tokens;  // Return the tokens
+void src_push_alias(struct source *s, const char *text, struct alias *a) {
+  struct strpush *sp = xmalloc(sizeof(*sp));
+  /* Pending lookahead characters belong after the alias text. */
+  size_t tl = strlen(text);
+  sp->s = xmalloc(tl + s->nunget + 1);
+  memcpy(sp->s, text, tl);
+  size_t k = tl;
+  while (s->nunget) sp->s[k++] = (char)s->unget[--s->nunget];
+  sp->s[k] = '\0';
+  sp->pos = 0;
+  sp->alias = a;
+  if (a) a->active++;
+  sp->prev = s->push;
+  s->push = sp;
+}
+
+int src_alias_active(struct source *s, struct alias *a) {
+  (void)s;
+  return a->active > 0;
+}
+
+void src_sync(struct source *s) {
+  if (!s->seekable || s->bufpos >= s->buflen) return;
+  off_t back = (off_t)(s->buflen - s->bufpos);
+  if (lseek(s->fd, -back, SEEK_CUR) >= 0) s->bufpos = s->buflen = 0;
+}
+
+void src_reset(struct source *s) {
+  s->nunget = 0;
+  while (s->push) {
+    struct strpush *sp = s->push;
+    s->push = sp->prev;
+    if (sp->alias) sp->alias->active--;
+    free(sp->s);
+    free(sp);
+  }
+  if (s->interactive) {
+    s->linepos = s->linelen;
+    s->eof = 0;
+  }
+  s->nextprompt = 1;
 }

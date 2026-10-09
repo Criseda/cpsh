@@ -1,7 +1,8 @@
 #ifndef PROMPT_H
 #define PROMPT_H
 
-char *get_cwd(void);
-void cpsh_print_prompt(void);
+/* The prompt to show before reading a line: 1 = PS1, 2 = PS2.
+ * Returns a malloc'd string. */
+char *prompt_string(int which);
 
 #endif

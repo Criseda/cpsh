@@ -2,9 +2,8 @@
 
 ## Requirements
 
-- A Unix-like operating system: macOS, Linux, BSD. On Windows, WSL is recommended.
-- Windows does not fully support POSIX APIs, therefore it will not compile on windows
-- A gcc compiler
+- A POSIX system: Linux, macOS or BSD. On Windows, use WSL.
+- A C99 compiler (gcc or clang)
 - [CMake (3.10 or higher)](https://cmake.org/download/)
 
 ## How to install and run the shell
@@ -20,6 +19,23 @@
     make
     ../bin/cpsh # to run the shell
     ```
+
+3. Optionally, run the test suite and install it system-wide:
+
+    ```bash
+    ctest                 # run the conformance tests
+    sudo make install     # installs to /usr/local/bin/cpsh
+    ```
+
+    To use it as your login shell, add its path to `/etc/shells` and run
+    `chsh -s /usr/local/bin/cpsh`.
+
+### Development builds
+
+```bash
+cmake .. -DCMAKE_BUILD_TYPE=Debug -DCPSH_SANITIZE=ON   # ASan + UBSan
+make && ctest
+```
 
 ## Uninstalling
 
