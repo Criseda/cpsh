@@ -58,7 +58,10 @@ static int fetch_line(struct source *s) {
   free(s->line);
   s->line = NULL;
   s->linepos = s->linelen = 0;
-  if (s->nextprompt == 1) s->hist.len = 0;
+  if (s->nextprompt == 1) {
+    s->hist.len = 0;
+    mail_check();
+  }
   char *prompt = prompt_string(s->nextprompt);
   char *line = lineedit_read(prompt);
   free(prompt);

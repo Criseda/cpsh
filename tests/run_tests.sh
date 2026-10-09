@@ -429,5 +429,15 @@ d c
    7|'
 t 'cd -e' 'cd -eP /; echo $? $PWD' '0 /'
 
+# ---------------------------------------------------------------- mail
+t 'MAIL' ': > box
+printf "echo x >> box\necho y\n" | MAIL=$PWD/box MAILCHECK=0 PS1= "$CPSH" -i 2>&1' 'you have mail
+y'
+t 'MAILPATH message' ': > box
+printf "echo x >> box\necho y\n" | MAILPATH="$PWD/box%new in \$HOME" MAILCHECK=0 PS1= "$CPSH" -i 2>&1' 'new in /home/tester
+y'
+t 'MAILCHECK interval' ': > box
+printf "echo x >> box\necho y\n" | MAIL=$PWD/box MAILCHECK=600 PS1= "$CPSH" -i 2>&1' 'y'
+
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]

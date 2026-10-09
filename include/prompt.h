@@ -5,4 +5,8 @@
  * Returns a malloc'd string. */
 char *prompt_string(int which);
 
+/* Before a PS1 prompt: report changed mail files ($MAIL, $MAILPATH), at
+ * most every $MAILCHECK seconds (default 600). */
+void mail_check(void);
+
 #endif

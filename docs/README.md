@@ -58,6 +58,8 @@ Regular built-ins: `alias` `cd` `command` `echo` `false` `getopts` `hash`
   a second tab lists the candidates.
 - `PS1`/`PS2` prompts with parameter and command expansion; when `PS1` is not
   set, cpsh shows the working directory and `user@host>`.
+- Mail notices for `$MAIL` and `$MAILPATH`, checked every `$MAILCHECK`
+  seconds (default 600).
 
 ### Not implemented
 
@@ -67,7 +69,6 @@ Regular built-ins: `alias` `cd` `command` `echo` `false` `getopts` `hash`
   background. `set -m` is accepted and does nothing.
 - The `fc` built-in, and `vi` editing mode (`set -o vi` is accepted and does
   nothing).
-- Mail checking (`MAIL`, `MAILCHECK`, `MAILPATH`).
 
 ## Performance
 

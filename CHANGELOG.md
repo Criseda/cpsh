@@ -7,8 +7,8 @@ uses [Semantic Versioning](https://semver.org/).
 ## [1.0.0] - 2026-10-09
 
 A rewrite of the shell around a proper lexer, parser and evaluator, so that
-cpsh implements most of the POSIX shell command language. Job control, `fc`,
-`vi` editing mode and mail checking are not implemented yet.
+cpsh implements most of the POSIX shell command language. Job control, `fc`
+and `vi` editing mode are not implemented yet.
 
 ### Added
 
@@ -39,7 +39,7 @@ cpsh implements most of the POSIX shell command language. Job control, `fc`,
   completion of commands and file names (#3, #11).
 - `!-n` and `!prefix` history expansion anywhere in a line, `history n`,
   `$HISTFILE` and `$HISTSIZE`.
-- `PS1`/`PS2` prompts.
+- `PS1`/`PS2` prompts, and mail checking (`MAIL`, `MAILCHECK`, `MAILPATH`).
 - Conformance test suite (`tests/run_tests.sh`, run by `ctest`) and a
   benchmark script (`bench/benchmark.py`) (#7).
 - This changelog (#12).
