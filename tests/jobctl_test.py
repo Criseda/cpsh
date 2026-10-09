@@ -109,8 +109,8 @@ class Shell:
         if self.pid:
             try:
                 os.kill(self.pid, signal.SIGKILL)
-                os.waitpid(self.pid, 0)
-            except (ProcessLookupError, ChildProcessError):
+                self.wait()  # even a killed process waits on macOS
+            except (ProcessLookupError, ChildProcessError, Failure):
                 pass
         os.close(self.fd)
 
@@ -464,7 +464,11 @@ def main():
     for name, fn in cases:
         signal.alarm(CASE_TIMEOUT)
         try:
-            fn()
+            try:
+                fn()
+            finally:
+                while shells:
+                    shells.pop().close()
             signal.alarm(0)
             passed += 1
             print("ok: %s" % name[2:], flush=True)
@@ -472,8 +476,6 @@ def main():
             signal.alarm(0)
             failed += 1
             print("FAIL: %s\n%s\n" % (name[2:], e), flush=True)
-        while shells:
-            shells.pop().close()
     print("passed: %d, failed: %d" % (passed, failed))
     sys.exit(1 if failed else 0)
 
