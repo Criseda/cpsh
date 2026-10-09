@@ -8,18 +8,18 @@ uses [Semantic Versioning](https://semver.org/).
 
 A rewrite of the shell around a proper lexer, parser and evaluator, so that
 cpsh implements most of the POSIX shell command language. Job control, `fc`,
-`ulimit`, `LINENO` and the POSIX.1-2024 additions are not implemented yet.
+`vi` editing mode and mail checking are not implemented yet.
 
 ### Added
 
-- Quoting (single, double, backslash) and line continuation.
+- Quoting (single, double, backslash, `$'...'`) and line continuation.
 - Pipelines, `;`, `&`, `&&`, `||`, `!`, subshells `( )` and groups `{ }`.
-- `if`, `while`, `until`, `for` and `case`; functions with positional
-  parameters, `return` and `local`.
+- `if`, `while`, `until`, `for` and `case` (including `;&` fall-through);
+  functions with positional parameters, `return` and `local`.
 - All POSIX redirections, including `n>&m`, `n>&-`, `<>`, `>|` and
   here-documents (`<<`, `<<-`).
-- Variables, positional and special parameters, `export`, `readonly`,
-  `unset`, and prefix assignments (`VAR=x cmd`).
+- Variables, positional and special parameters, `$LINENO`, `export`,
+  `readonly`, `unset`, and prefix assignments (`VAR=x cmd`).
 - Parameter expansion with all POSIX operators, command substitution
   (`$(...)` and backquotes), arithmetic expansion, tilde expansion, IFS field
   splitting and pathname expansion.
@@ -27,10 +27,14 @@ cpsh implements most of the POSIX shell command language. Job control, `fc`,
 - Script execution (`cpsh script`, `-c`, `-s`, stdin), `.`, `eval`, `exec`,
   `$ENV`, and scripts without a `#!` line.
 - `set` options `-a -C -e -f -n -u -v -x`, `-o pipefail`, `-o ignoreeof`.
-- `trap` (signals and `EXIT`), `wait`, `kill`, background jobs and `$!`.
+- `trap` (signals and `EXIT`; in a subshell, `trap` lists the parent's traps
+  until one is changed), `wait`, `kill`, background jobs and `$!`.
 - Built-ins: `:` `break` `continue` `command` `echo` `false` `getopts`
   `hash` `printf` `pwd` `read` `shift` `test`/`[` `times` `true` `type`
-  `umask` `alias` `unalias` `export` `readonly` `unset` `set` `local`.
+  `ulimit` `umask` `alias` `unalias` `export` `readonly` `unset` `set`
+  `local`.
+- From POSIX.1-2024: `read -d`, `cd -e`, `printf` argument numbers
+  (`%1$s`, `*1$`), and `ulimit -H -S -a -c -d -n -s -t -v`.
 - Interactive line editor with cursor movement, history navigation and tab
   completion of commands and file names (#3, #11).
 - `!-n` and `!prefix` history expansion anywhere in a line, `history n`,
@@ -44,7 +48,7 @@ cpsh implements most of the POSIX shell command language. Job control, `fc`,
 
 - External commands are started with `posix_spawn` instead of `fork`, their
   paths are cached, and the exported environment is cached; overall the
-  benchmark suite runs 33 % faster and uses 28 % less memory.
+  benchmark suite runs about a third faster and uses 28 % less memory.
 - History is kept in a ring buffer (O(1) appends) instead of a linked list
   walked on every command, and entries are no longer fixed 1 KiB blocks.
   Commands typed over several lines are kept as one entry; in the history

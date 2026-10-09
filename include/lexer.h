@@ -24,7 +24,8 @@ enum token {
   T_LESSAND,   /* <& */
   T_GREATAND,  /* >& */
   T_LESSGREAT, /* <> */
-  T_CLOBBER    /* >| */
+  T_CLOBBER,   /* >| */
+  T_SEMIAND    /* ;& */
 };
 
 struct lexer {

@@ -11,6 +11,9 @@ volatile sig_atomic_t last_trapped_sig;
 
 static volatile sig_atomic_t sig_pending[NSIGS];
 static char *traps[NSIGS]; /* NULL: default; "": ignore; else action */
+/* Actions a subshell reset on entry. Until it changes a trap, `trap` with
+ * no operands lists these, so `$(trap)` shows the parent's traps. */
+static char *saved_traps[NSIGS];
 static char ignored_on_entry[NSIGS];
 static char shell_changed[NSIGS]; /* disposition the shell itself altered */
 static sigset_t child_defaults;
@@ -117,6 +120,12 @@ void dotrap(void) {
   in_trap = 0;
 }
 
+int traps_set(void) {
+  for (int s = 0; s < NSIGS; s++)
+    if (traps[s] && *traps[s]) return 1;
+  return 0;
+}
+
 int trap_exit_set(void) { return traps[0] != NULL && !exit_trap_done; }
 
 void run_exit_trap(void) {
@@ -130,10 +139,20 @@ void run_exit_trap(void) {
   free(action);
 }
 
+static void forget_saved(void) {
+  for (int s = 0; s < NSIGS; s++) {
+    free(saved_traps[s]);
+    saved_traps[s] = NULL;
+  }
+}
+
 void trap_reset_subshell(void) {
+  int any = 0;
+  for (int s = 0; s < NSIGS; s++) any |= traps[s] && *traps[s];
+  if (any) forget_saved(); /* else a nested subshell keeps the outer list */
   for (int s = 0; s < NSIGS; s++) {
     if (traps[s] && *traps[s]) {
-      free(traps[s]);
+      saved_traps[s] = traps[s];
       traps[s] = NULL;
       if (s) set_disposition(s, SIG_DFL);
     }
@@ -159,11 +178,12 @@ static void print_traps(void) {
   strbuf sb;
   sb_init(&sb);
   for (int s = 0; s < NSIGS; s++) {
-    if (!traps[s]) continue;
+    const char *t = traps[s] ? traps[s] : saved_traps[s];
+    if (!t) continue;
     const char *nm = signal_name(s);
     sb.len = 0;
     sb_puts(&sb, "trap -- ");
-    sh_quote(&sb, traps[s]);
+    sh_quote(&sb, t);
     sb_putc(&sb, ' ');
     if (nm) {
       sb_puts(&sb, nm);
@@ -193,6 +213,7 @@ int trap_builtin(int argc, char **argv) {
     i++;
   }
   int status = 0;
+  forget_saved();
   for (; i < argc; i++) {
     int s = signal_number(argv[i]);
     if (s < 0 || s == SIGKILL || s == SIGSTOP) {

@@ -11,6 +11,7 @@ void signals_init(int interactive);
 void dotrap(void);          /* run actions of pending trapped signals */
 void run_exit_trap(void);   /* EXIT trap, at most once */
 int trap_exit_set(void);    /* an EXIT trap is pending */
+int traps_set(void);        /* any trap with an action is set */
 void trap_reset_subshell(void);
 void trap_ignore_bg(void);  /* async lists ignore SIGINT/SIGQUIT */
 /* Signals a child process must reset to SIG_DFL before exec. */

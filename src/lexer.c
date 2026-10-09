@@ -3,7 +3,8 @@
 static const char *const tok_names[] = {
     "end of file", "newline", "word", "io number", ";", "&",  "&&",
     "||",          "|",       "(",    ")",         ";;", "<",  ">",
-    "<<",          "<<-",     ">>",   "<&",        ">&", "<>", ">|"};
+    "<<",          "<<-",     ">>",   "<&",        ">&", "<>", ">|",
+    ";&"};
 
 const char *tok_str(int tok) { return tok_names[tok]; }
 
@@ -53,7 +54,7 @@ static void put(struct lexer *lx, int c) {
   lx->wbuf[lx->wlen] = '\0';
 }
 
-static void lex_dollar(struct lexer *lx, int indq);
+static int lex_dollar(struct lexer *lx, int indq);
 static void lex_backquote(struct lexer *lx);
 
 /* Copy an escaped character after a backslash that was already stored. */
@@ -113,16 +114,106 @@ static void lex_cmdsub(struct lexer *lx) {
   if (outermost) src_rec_end(src);
 }
 
-/* Called after '$' has been stored. */
-static void lex_dollar(struct lexer *lx, int indq) {
+static void put_squoted(struct lexer *lx, int c) {
+  if (c == '\'') { /* close the quotes, add \', reopen */
+    put(lx, '\'');
+    put(lx, '\\');
+    put(lx, '\'');
+  }
+  put(lx, c);
+}
+
+static int hexval(int c) {
+  if (isdigit(c)) return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+/* $'...' after "$'" has been read: store it as a single-quoted string with
+ * its backslash escapes decoded. A decoded NUL ends the string. */
+static void lex_dollar_squote(struct lexer *lx) {
+  int nul = 0;
+  put(lx, '\'');
+  for (;;) {
+    int c = rawc(lx);
+    if (c == PEOF) lex_error(lx, "unterminated quoted string");
+    if (c == '\'') break;
+    if (c == '\\') {
+      c = rawc(lx);
+      if (c == PEOF) lex_error(lx, "unterminated quoted string");
+      switch (c) {
+        case 'a': c = '\a'; break;
+        case 'b': c = '\b'; break;
+        case 'e': c = 033; break;
+        case 'f': c = '\f'; break;
+        case 'n': c = '\n'; break;
+        case 'r': c = '\r'; break;
+        case 't': c = '\t'; break;
+        case 'v': c = '\v'; break;
+        case '\\': case '\'': case '"': break;
+        case 'c': { /* control character */
+          int n = rawc(lx);
+          if (n == '\\') n = rawc(lx); /* \c\\ */
+          if (n == PEOF) lex_error(lx, "unterminated quoted string");
+          c = n == '?' ? 0177 : toupper(n) & 037;
+          break;
+        }
+        case 'x': {
+          int v = 0, k = 0, d;
+          while (k < 2) {
+            if ((d = hexval(c = rawc(lx))) < 0) {
+              ungetc_(lx, c);
+              break;
+            }
+            v = v * 16 + d;
+            k++;
+          }
+          if (!k) { /* not an escape after all */
+            if (!nul) {
+              put(lx, '\\');
+              put(lx, 'x');
+            }
+            continue;
+          }
+          c = v;
+          break;
+        }
+        default:
+          if (c >= '0' && c <= '7') {
+            int v = c - '0', k = 1;
+            while (k < 3 && (c = rawc(lx)) >= '0' && c <= '7') {
+              v = v * 8 + c - '0';
+              k++;
+            }
+            if (k < 3) ungetc_(lx, c);
+            c = v & 0377;
+          } else if (!nul) { /* unknown: keep the backslash */
+            put(lx, '\\');
+          }
+      }
+    }
+    if (c == 0) nul = 1;
+    if (!nul) put_squoted(lx, c);
+  }
+  put(lx, '\'');
+}
+
+/* Called after '$' has been stored. Returns 1 if it read a $'...'. */
+static int lex_dollar(struct lexer *lx, int indq) {
   int c = getc_nl(lx);
+  if (c == '\'' && !indq) {
+    lx->wlen--; /* drop the '$' */
+    lex_dollar_squote(lx);
+    return 1;
+  }
   if (c == '{') {
     put(lx, c);
     for (;;) {
       c = getc_nl(lx);
       if (c == PEOF) lex_error(lx, "unterminated ${...}");
       put(lx, c);
-      if (c == '}') return;
+      if (c == '}') return 0;
       if (c == '\\')
         lex_escape(lx);
       else if (c == '\'' && !indq)
@@ -155,7 +246,7 @@ static void lex_dollar(struct lexer *lx, int indq) {
           c = getc_nl(lx);
           if (c == ')') {
             put(lx, c);
-            return;
+            return 0;
           }
           ungetc_(lx, c);
         } else if (c == '\\') {
@@ -176,6 +267,7 @@ static void lex_dollar(struct lexer *lx, int indq) {
   } else {
     ungetc_(lx, c);
   }
+  return 0;
 }
 
 /* Remove quoting from a here-document delimiter. */
@@ -290,6 +382,10 @@ void lex_next(struct lexer *lx) {
         lx->tok = T_DSEMI;
         return;
       }
+      if (c == '&') {
+        lx->tok = T_SEMIAND;
+        return;
+      }
       ungetc_(lx, c);
       lx->tok = T_SEMI;
       return;
@@ -373,7 +469,7 @@ void lex_next(struct lexer *lx) {
         lex_backquote(lx);
         break;
       case '$':
-        lex_dollar(lx, 0);
+        if (lex_dollar(lx, 0)) quoted = 1;
         break;
     }
   }

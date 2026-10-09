@@ -1,5 +1,6 @@
 #include "builtins.h"
 
+#include <sys/resource.h>
 #include <sys/times.h>
 
 #include "alias.h"
@@ -159,29 +160,39 @@ static int do_chdir(const char *dir, int physical, int print) {
   char buf[PATH_MAX];
   char *oldpwd = pwd ? xstrdup(pwd) : NULL;
   const char *newpwd = target;
-  if (physical || !newpwd) newpwd = getcwd(buf, sizeof(buf)) ? buf : dir;
+  int known = 1;
+  if (physical || !newpwd) {
+    known = getcwd(buf, sizeof(buf)) != NULL;
+    newpwd = known ? buf : dir;
+  }
   var_set("OLDPWD", oldpwd ? oldpwd : "", V_EXPORT);
   var_set("PWD", newpwd, V_EXPORT);
   if (print) puts(newpwd);
   free(oldpwd);
   free(target);
-  return 0;
+  return known ? 0 : 1;
 }
 
 static int cd_builtin(int argc, char **argv) {
-  int physical = 0, i = 1;
+  int physical = 0, check = 0, i = 1;
   for (; i < argc && argv[i][0] == '-' && argv[i][1]; i++) {
     if (strcmp(argv[i], "--") == 0) {
       i++;
       break;
     }
-    if (strcmp(argv[i], "-L") == 0)
-      physical = 0;
-    else if (strcmp(argv[i], "-P") == 0)
-      physical = 1;
-    else
-      return bad_usage("cd", "usage: cd [-L|-P] [directory]");
+    for (const char *p = argv[i] + 1; *p; p++) {
+      if (*p == 'L')
+        physical = 0;
+      else if (*p == 'P')
+        physical = 1;
+      else if (*p == 'e')
+        check = 1;
+      else
+        return bad_usage("cd", "usage: cd [-L|-P [-e]] [directory]");
+    }
   }
+  /* -e: with -P, fail if the new directory's path cannot be determined */
+  check = check && physical;
   const char *dir = i < argc ? argv[i] : NULL;
   int print = 0;
   if (!dir) {
@@ -214,21 +225,23 @@ static int cd_builtin(int argc, char **argv) {
       else
         snprintf(cand, n, "./%s", dir);
       struct stat st;
+      int r;
       if (stat(cand, &st) == 0 && S_ISDIR(st.st_mode) &&
-          do_chdir(cand, physical, print || dl > 0) == 0) {
+          (r = do_chdir(cand, physical, print || dl > 0)) >= 0) {
         free(cand);
-        return 0;
+        return check && r;
       }
       free(cand);
       if (!colon) break;
       p = colon + 1;
     }
   }
-  if (do_chdir(dir, physical, print) != 0) {
+  int r = do_chdir(dir, physical, print);
+  if (r < 0) {
     sh_warn("cd: %s: %s", dir, strerror(errno));
     return 1;
   }
-  return 0;
+  return check && r;
 }
 
 static int pwd_builtin(int argc, char **argv) {
@@ -575,14 +588,25 @@ static int is_ifs_ws(char c, const char *ifs) {
 
 static int read_builtin(int argc, char **argv) {
   int raw = 0, i = 1;
+  char delim = '\n';
   for (; i < argc && argv[i][0] == '-' && argv[i][1]; i++) {
-    if (strcmp(argv[i], "-r") == 0)
-      raw = 1;
-    else if (strcmp(argv[i], "--") == 0) {
+    if (strcmp(argv[i], "--") == 0) {
       i++;
       break;
-    } else
-      return bad_usage("read", "usage: read [-r] var...");
+    }
+    for (const char *p = argv[i] + 1; *p; p++) {
+      if (*p == 'r') {
+        raw = 1;
+      } else if (*p == 'd') {
+        /* -d delim: its first byte ends the line; "" means NUL */
+        const char *d = p[1] ? p + 1 : argv[++i];
+        if (!d) return bad_usage("read", "-d: missing argument");
+        delim = *d;
+        break;
+      } else {
+        return bad_usage("read", "usage: read [-r] [-d delim] var...");
+      }
+    }
   }
   if (i >= argc) return bad_usage("read", "variable name required");
   for (int k = i; k < argc; k++)
@@ -604,7 +628,7 @@ static int read_builtin(int argc, char **argv) {
       if (pending_traps) {
         sb_free(&line);
         sb_free(&esc);
-        return 128 + SIGINT;
+        return 128 + last_trapped_sig;
       }
       continue;
     }
@@ -612,7 +636,7 @@ static int read_builtin(int argc, char **argv) {
       status = 1;
       break;
     }
-    if (c == '\n') break;
+    if (c == delim) break;
     if (c == '\\' && !raw) {
       n = read(0, &c, 1);
       if (n <= 0) {
@@ -724,6 +748,106 @@ static int umask_builtin(int argc, char **argv) {
     }
   }
   umask(~allowed & 0777);
+  return 0;
+}
+
+static const struct limit {
+  char opt;
+  int res;
+  rlim_t unit; /* bytes per unit shown to the user */
+  const char *desc;
+} limits[] = {
+    {'c', RLIMIT_CORE, 512, "core file size (blocks)"},
+    {'d', RLIMIT_DATA, 1024, "data seg size (kbytes)"},
+    {'f', RLIMIT_FSIZE, 512, "file size (blocks)"},
+    {'n', RLIMIT_NOFILE, 1, "open files"},
+    {'s', RLIMIT_STACK, 1024, "stack size (kbytes)"},
+    {'t', RLIMIT_CPU, 1, "cpu time (seconds)"},
+    {'v', RLIMIT_AS, 1024, "virtual memory (kbytes)"},
+    {0, 0, 0, NULL}};
+
+static void print_limit(rlim_t v, rlim_t unit) {
+  if (v == RLIM_INFINITY)
+    puts("unlimited");
+  else
+    printf("%llu\n", (unsigned long long)(v / unit));
+}
+
+/* ulimit [-H|-S] -a | ulimit [-H|-S] [-c|-d|-f|-n|-s|-t|-v] [newlimit] */
+static int ulimit_builtin(int argc, char **argv) {
+  int hard = 0, soft = 0, all = 0, i = 1;
+  const struct limit *l = NULL;
+  for (; i < argc && argv[i][0] == '-' && argv[i][1]; i++) {
+    if (strcmp(argv[i], "--") == 0) {
+      i++;
+      break;
+    }
+    for (const char *p = argv[i] + 1; *p; p++) {
+      if (*p == 'H') {
+        hard = 1;
+      } else if (*p == 'S') {
+        soft = 1;
+      } else if (*p == 'a') {
+        all = 1;
+      } else {
+        const struct limit *k = limits;
+        while (k->opt && k->opt != *p) k++;
+        if (!k->opt) {
+          sh_warn("ulimit: -%c: invalid option", *p);
+          return 2;
+        }
+        l = k;
+      }
+    }
+  }
+  if (!l) l = &limits[2]; /* -f */
+  if (all) {
+    for (const struct limit *k = limits; k->opt; k++) {
+      struct rlimit rl;
+      if (getrlimit(k->res, &rl) < 0) continue;
+      printf("-%c: %-26s", k->opt, k->desc);
+      print_limit(hard ? rl.rlim_max : rl.rlim_cur, k->unit);
+    }
+    return 0;
+  }
+  struct rlimit rl;
+  if (getrlimit(l->res, &rl) < 0) {
+    sh_warn("ulimit: %s", strerror(errno));
+    return 1;
+  }
+  if (i >= argc) {
+    print_limit(hard ? rl.rlim_max : rl.rlim_cur, l->unit);
+    return 0;
+  }
+  if (i + 1 < argc) {
+    sh_warn("ulimit: too many arguments");
+    return 2;
+  }
+  rlim_t v;
+  if (strcmp(argv[i], "unlimited") == 0) {
+    v = RLIM_INFINITY;
+  } else {
+    const char *s = argv[i];
+    if (!isdigit((unsigned char)*s)) {
+      sh_warn("ulimit: %s: bad number", s);
+      return 1;
+    }
+    errno = 0;
+    char *end;
+    unsigned long long n = strtoull(s, &end, 10);
+    if (*end || errno || n > (unsigned long long)(RLIM_INFINITY - 1) / l->unit) {
+      sh_warn("ulimit: %s: bad number", s);
+      return 1;
+    }
+    v = (rlim_t)n * l->unit;
+  }
+  /* with neither -H nor -S, both limits are set */
+  if (hard || !soft) rl.rlim_max = v;
+  if (soft || !hard) rl.rlim_cur = v;
+  if (setrlimit(l->res, &rl) < 0) {
+    sh_warn("ulimit: %s", strerror(errno));
+    return 1;
+  }
   return 0;
 }
 
@@ -1039,6 +1163,7 @@ static const struct builtin table[] = {
     {"trap", trap_builtin, 1},
     {"true", colon_builtin, 0},
     {"type", type_builtin, 0},
+    {"ulimit", ulimit_builtin, 0},
     {"umask", umask_builtin, 0},
     {"unalias", unalias_builtin, 0},
     {"unset", unset_builtin, 1},

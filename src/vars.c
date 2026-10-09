@@ -38,8 +38,19 @@ struct var *var_lookup(const char *name) {
   return lookup_n(name, n, hash_name(name, n));
 }
 
+/* Bring LINENO's value up to date before it is read. */
+static void refresh(struct var *v) {
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%d", cur_lineno);
+  if (v->val && strcmp(v->val, buf) == 0) return;
+  free(v->val);
+  v->val = xstrdup(buf);
+  if (v->flags & V_EXPORT) env_dirty = 1;
+}
+
 const char *var_get(const char *name) {
   struct var *v = var_lookup(name);
+  if (v && (v->flags & V_LINENO)) refresh(v);
   return v ? v->val : NULL;
 }
 
@@ -119,9 +130,12 @@ void vars_init(char **envp) {
     if (name_len(*envp) != n) continue;
     var_set_n(*envp, n, eq + 1, V_EXPORT);
   }
+  var_set("LINENO", NULL, V_LINENO);
 }
 
 char **var_environ(void) {
+  struct var *ln = var_lookup("LINENO");
+  if (ln && (ln->flags & V_LINENO) && (ln->flags & V_EXPORT)) refresh(ln);
   if (!env_dirty && env_cache) return env_cache;
   if (env_cache) {
     for (char **e = env_cache; *e; e++) free(*e);
@@ -157,6 +171,7 @@ void var_print(int flags, const char *prefix) {
   for (int b = 0; b < NBUCKETS; b++)
     for (struct var *v = table[b]; v; v = v->next) {
       if ((v->flags & flags) != flags) continue;
+      if (v->flags & V_LINENO) refresh(v);
       if (!flags && !v->val) continue;
       if (n == cap) list = xrealloc(list, (cap *= 2) * sizeof(*list));
       list[n++] = v;

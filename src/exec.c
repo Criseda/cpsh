@@ -12,6 +12,7 @@
 
 int evalskip, skipcount, loopnest, funcnest, dotnest;
 arena *toplevel_arena;
+int cur_lineno;
 
 extern char **environ;
 
@@ -555,7 +556,15 @@ static int evalcase(struct node *n, int flags) {
   for (struct caseitem *ci = n->u.casen.items; ci; ci = ci->next) {
     for (int i = 0; i < ci->npats; i++) {
       if (fnmatch(expand_pattern(ci->pats[i]), word, 0) == 0) {
-        status = ci->body ? evaltree(ci->body, flags) : 0;
+        /* run this body, and the following ones while they end in ;& */
+        for (;;) {
+          status = ci->body ? evaltree(ci->body, ci->fallthrough && ci->next
+                                                     ? flags & ~EV_EXIT
+                                                     : flags)
+                            : 0;
+          if (!ci->fallthrough || !ci->next || evalskip) break;
+          ci = ci->next;
+        }
         strelease(mark);
         return status;
       }
@@ -648,7 +657,8 @@ static int evalnode(struct node *n, int flags) {
       break;
     }
     case N_SUBSHELL:
-      if (flags & EV_EXIT) {
+      /* a last command needs no fork, unless traps must be reset */
+      if ((flags & EV_EXIT) && !traps_set()) {
         if (apply_redirs(n->redirs, 0) < 0) _exit(1);
         evaltree(n->u.body, EV_EXIT);
       } else {
@@ -696,6 +706,7 @@ int evaltree(struct node *n, int flags) {
   int status = 0;
   if (nflag && !iflag) n = NULL;
   if (n) {
+    cur_lineno = n->lineno;
     if (n->redirs && n->type != N_SIMPLE && n->type != N_SUBSHELL) {
       redir_push();
       if (apply_redirs(n->redirs, 1) < 0) {
@@ -728,6 +739,8 @@ static int rest_is_blank(struct source *src) {
 
 int evalstring(const char *s, int flags) {
   struct source *src = src_string(s);
+  /* eval, traps and $(...) count their lines from the current one */
+  if (cur_lineno > 0) src->lineno = cur_lineno;
   int status = 0;
   for (;;) {
     arena *a;

@@ -370,6 +370,64 @@ t 'multi-line history survives a save' 'export HISTFILE=$PWD/h2
 "$CPSH" -i -c "history" 2>/dev/null' '    1  a
 b
     2  c'
+t 'printf too wide with no arguments' 'printf "%0600d" | wc -c' '600'
+
+# ---------------------------------------------------------------- LINENO
+t 'LINENO' 'echo $LINENO
+f() {
+  echo $LINENO
+}
+f
+echo $(echo $LINENO) \
+  $LINENO' '1
+3
+6 6'
+t 'LINENO in eval' 'x=1
+eval "echo \$LINENO
+echo \$LINENO"' '2
+3'
+t 'unset LINENO' 'unset LINENO; echo "[$LINENO]"' '[]'
+
+# ---------------------------------------------------------------- ulimit
+t 'ulimit -f set and read' 'ulimit -f 100; ulimit -f; ulimit -Sf 50; ulimit -Sf; ulimit -Hf' '100
+50
+100'
+t 'ulimit default is -f' 'ulimit -f 77; ulimit' '77'
+t 'ulimit -n in a child' 'ulimit -n 64; "$CPSH" -c "ulimit -n"' '64'
+t 'ulimit -a lists -n' 'ulimit -a | grep -c "^-n: "' '1'
+t 'ulimit errors' 'ulimit -n abc 2>/dev/null; echo $?; ulimit -x 2>/dev/null; echo $?' '1
+2'
+
+# ---------------------------------------------------------------- traps in subshells
+t 'trap lists the parent traps in $()' 'trap "echo hi" USR1; trap "" USR2; x=$(trap); echo "$x"' "trap -- 'echo hi' USR1
+trap -- '' USR2"
+t 'trap in a subshell after a change' 'trap "echo hi" USR1; (trap "echo z" TERM; trap)' "trap -- 'echo z' TERM"
+t 'last subshell does not keep traps' 'trap "echo hi" USR1; (trap)' "trap -- 'echo hi' USR1"
+
+# ---------------------------------------------------------------- POSIX.1-2024
+t "\$'...' escapes" "printf '%s|' \$'a\\tb' \$'q\\'q' \$'\\x41\\x4a' \$'\\101\\60' \$'x\\0y' \$'\\z' \"\$'no'\" \$''" "a	b|q'q|AJ|A0|x|\\z|\$'no'||"
+t "\$'...' is quoted" "\$'{' 2>/dev/null; echo \$?; x=\$'a  b'; echo \"[\$x]\"" '127
+[a  b]'
+t "\$'\\c' control characters" "printf %s \$'\\cA\\c?' | od -An -tx1 | tr -d ' '" '017f'
+t 'case ;& falls through' 'for v in a b c; do
+case $v in
+  a) echo A ;&
+  b) echo B ;;
+  c) echo C ;&
+esac
+done' 'A
+B
+B
+C'
+t 'read -d' 'printf "a:b" | { read -d : v; echo "$v"; }
+printf "a b\0c" | { read -d "" v; echo "$v"; }
+printf "xyz" | { read -rd y v; echo "$v"; }' 'a
+a b
+x'
+t 'printf numbered arguments' 'printf "%2\$s %1\$s\n" a b c d; printf "%2\$*1\$d|\n" 4 7' 'b a
+d c
+   7|'
+t 'cd -e' 'cd -eP /; echo $? $PWD' '0 /'
 
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]

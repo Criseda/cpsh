@@ -51,6 +51,7 @@ struct caseitem {
   char **pats;
   int npats;
   struct node *body; /* may be NULL */
+  int fallthrough;   /* ended with ;& : run the next body too */
 };
 
 struct node {

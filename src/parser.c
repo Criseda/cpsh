@@ -56,7 +56,7 @@ static int at_terminator(struct parser *P) {
   static const char *const ends[] = {"then", "else", "elif", "fi",  "do",
                                      "done", "esac", "}",    NULL};
   int t = peek(P);
-  if (t == T_RPAREN || t == T_DSEMI || t == T_EOF) return 1;
+  if (t == T_RPAREN || t == T_DSEMI || t == T_SEMIAND || t == T_EOF) return 1;
   if (t != T_WORD || P->lx.quoted) return 0;
   for (int i = 0; ends[i]; i++)
     if (strcmp(P->lx.text, ends[i]) == 0) return 1;
@@ -324,11 +324,12 @@ static struct node *parse_case(struct parser *P) {
     }
     expect(P, T_RPAREN);
     skip_newlines(P);
-    if (peek(P) != T_DSEMI && !is_kw(P, "esac"))
+    if (peek(P) != T_DSEMI && peek(P) != T_SEMIAND && !is_kw(P, "esac"))
       ci->body = parse_compound_list(P);
     *tail = ci;
     tail = &ci->next;
-    if (peek(P) == T_DSEMI) {
+    if (peek(P) == T_DSEMI || peek(P) == T_SEMIAND) {
+      ci->fallthrough = peek(P) == T_SEMIAND;
       consume(P);
       continue;
     }

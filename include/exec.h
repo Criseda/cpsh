@@ -14,6 +14,7 @@ int evalstring(const char *s, int flags);
  * interactive loop). */
 int evalsource(struct source *src, int toplevel);
 extern arena *toplevel_arena; /* tree being run by the top-level loop */
+extern int cur_lineno;        /* line of the command being run ($LINENO) */
 
 /* break / continue / return */
 enum { SKIP_NONE, SKIP_BREAK, SKIP_CONT, SKIP_RETURN };

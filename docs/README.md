@@ -26,12 +26,12 @@ Options are the `set` options below, e.g. `cpsh -ex script.sh`.
 
 | Area | Supported |
 |---|---|
-| Quoting | `'single'`, `"double"`, `\` escapes, line continuation |
+| Quoting | `'single'`, `"double"`, `$'escapes\n'`, `\` escapes, line continuation |
 | Lists | `;` `&` `&&` `\|\|` newlines, `!` pipelines, pipes `\|` |
-| Compound commands | `( )` subshells, `{ }` groups, `if/elif/else`, `while`, `until`, `for`, `case` |
+| Compound commands | `( )` subshells, `{ }` groups, `if/elif/else`, `while`, `until`, `for`, `case` (with `;;` and `;&`) |
 | Functions | `name() compound-command`, positional parameters, `return`, `local` |
 | Redirection | `<` `>` `>>` `>\|` `<>` `<&` `>&` `n>&-`, here-documents `<<` and `<<-` |
-| Parameters | variables, `$1`…`${10}`, `$@ $* $# $? $- $$ $! $0`, `export`, `readonly` |
+| Parameters | variables, `$1`…`${10}`, `$@ $* $# $? $- $$ $! $0`, `$LINENO`, `export`, `readonly` |
 | Parameter expansion | `${x}` `${x:-w}` `${x-w}` `${x:=w}` `${x:?w}` `${x:+w}` `${#x}` `${x%p}` `${x%%p}` `${x#p}` `${x##p}` |
 | Other expansions | tilde, `$(…)` and `` `…` `` command substitution, `$((…))` arithmetic (full C operator set), IFS field splitting, pathname expansion (`* ? [...]`) |
 | Aliases | `alias`, `unalias` |
@@ -46,7 +46,7 @@ Special built-ins: `.` `:` `break` `continue` `eval` `exec` `exit` `export`
 
 Regular built-ins: `alias` `cd` `command` `echo` `false` `getopts` `hash`
 `history` `kill` `local` `printf` `pwd` `read` `test`/`[` `true` `type`
-`umask` `unalias` `wait`.
+`ulimit` `umask` `unalias` `wait`.
 
 ### Interactive features
 
@@ -65,13 +65,9 @@ Regular built-ins: `alias` `cd` `command` `echo` `false` `getopts` `hash`
   `wait`): background jobs run, can be waited for by process ID, and are
   reported through `$!`, but cannot be moved between foreground and
   background. `set -m` is accepted and does nothing.
-- The `fc` and `ulimit` built-ins, and `vi` editing mode (`set -o vi` is
-  accepted and does nothing).
-- The `LINENO` variable, and mail checking (`MAIL`, `MAILCHECK`, `MAILPATH`).
-- `trap` with no operands inside a command substitution prints nothing,
-  rather than the traps of the parent shell.
-- Additions in POSIX.1-2024: `$'...'` quoting, `;&` in `case`, `read -d`,
-  `cd -e` and `printf` argument numbers (`%1$s`).
+- The `fc` built-in, and `vi` editing mode (`set -o vi` is accepted and does
+  nothing).
+- Mail checking (`MAIL`, `MAILCHECK`, `MAILPATH`).
 
 ## Performance
 

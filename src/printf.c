@@ -4,10 +4,30 @@
 
 static char **pargs;
 static int pnargs, pidx, pstatus;
+/* Numbered conversions (%n$): the next argument read is number pnum
+ * (1-based) counted from pbase; pmax is the highest number used in this
+ * pass over the format. */
+static int pnum, pbase, pmax;
 
 static const char *next_arg(void) {
+  if (pnum) {
+    int k = pbase + pnum - 1;
+    pnum = 0;
+    return k < pnargs ? pargs[k] : NULL;
+  }
   if (pidx < pnargs) return pargs[pidx++];
   return NULL;
+}
+
+/* Parse "n$" at *pp; if present, select argument n for the next read. */
+static void arg_number(const char **pp) {
+  const char *p = *pp;
+  int n = 0;
+  while (isdigit((unsigned char)*p) && n < 100000) n = n * 10 + (*p++ - '0');
+  if (p == *pp || *p != '$' || n == 0) return;
+  pnum = n;
+  if (n > pmax) pmax = n;
+  *pp = p + 1;
 }
 
 static void conv_error(const char *arg) {
@@ -105,11 +125,11 @@ static void put_formatted(strbuf *out, const char *spec, char conv) {
     case 'i': {
       char f[64];
       snprintf(f, sizeof(f), "%sl%c", spec, conv);
-      n = snprintf(buf, sizeof(buf), f, arg_long());
+      long v = arg_long();
+      n = snprintf(buf, sizeof(buf), f, v);
       if (n >= (int)sizeof(buf)) {
         dyn = xmalloc((size_t)n + 1);
-        pidx--;
-        snprintf(dyn, (size_t)n + 1, f, arg_long());
+        snprintf(dyn, (size_t)n + 1, f, v);
       }
       break;
     }
@@ -119,11 +139,11 @@ static void put_formatted(strbuf *out, const char *spec, char conv) {
     case 'X': {
       char f[64];
       snprintf(f, sizeof(f), "%sl%c", spec, conv);
-      n = snprintf(buf, sizeof(buf), f, arg_ulong());
+      unsigned long v = arg_ulong();
+      n = snprintf(buf, sizeof(buf), f, v);
       if (n >= (int)sizeof(buf)) {
         dyn = xmalloc((size_t)n + 1);
-        pidx--;
-        snprintf(dyn, (size_t)n + 1, f, arg_ulong());
+        snprintf(dyn, (size_t)n + 1, f, v);
       }
       break;
     }
@@ -185,22 +205,30 @@ static int do_format(const char *fmt, strbuf *out) {
       p += 2;
       continue;
     }
-    /* build a C conversion spec: %[flags][width][.precision] */
+    /* build a C conversion spec: %[n$][flags][width][.precision], where
+     * width and precision may be * or *m$ */
     char spec[48];
     size_t k = 0;
     spec[k++] = *p++;
+    const char *numbered = p;
+    arg_number(&numbered);
+    int argnum = numbered != p ? pnum : 0;
+    pnum = 0;
+    p = numbered;
     while (*p && strchr("-+ #0", *p) && k < 10) spec[k++] = *p++;
     if (*p == '*') {
-      k += (size_t)snprintf(spec + k, sizeof(spec) - k, "%ld", arg_long());
       p++;
+      arg_number(&p);
+      k += (size_t)snprintf(spec + k, sizeof(spec) - k, "%ld", arg_long());
     } else {
       while (isdigit((unsigned char)*p) && k < 20) spec[k++] = *p++;
     }
     if (*p == '.') {
       spec[k++] = *p++;
       if (*p == '*') {
-        k += (size_t)snprintf(spec + k, sizeof(spec) - k, "%ld", arg_long());
         p++;
+        arg_number(&p);
+        k += (size_t)snprintf(spec + k, sizeof(spec) - k, "%ld", arg_long());
       } else {
         while (isdigit((unsigned char)*p) && k < 40) spec[k++] = *p++;
       }
@@ -213,6 +241,7 @@ static int do_format(const char *fmt, strbuf *out) {
       return 0;
     }
     p++;
+    pnum = argnum;
     if (conv == 'b') {
       const char *a = next_arg();
       strbuf tmp;
@@ -258,14 +287,22 @@ int printf_builtin(int argc, char **argv) {
   const char *fmt = argv[i];
   pargs = argv + i + 1;
   pnargs = argc - i - 1;
-  pidx = 0;
+  pidx = pnum = pbase = 0;
   pstatus = 0;
   strbuf out;
   sb_init(&out);
   for (;;) {
     int before = pidx;
+    pmax = 0;
     if (!do_format(fmt, &out)) break;
-    /* reuse the format while arguments remain (and it consumes some) */
+    /* reuse the format while arguments remain (and it consumes some);
+     * with numbered conversions, the next pass starts after the highest
+     * numbered argument */
+    if (pmax) {
+      pbase += pmax;
+      if (pbase >= pnargs) break;
+      continue;
+    }
     if (pidx >= pnargs || pidx == before) break;
   }
   if (out.len) fwrite(out.s, 1, out.len, stdout);

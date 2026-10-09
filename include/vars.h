@@ -5,6 +5,7 @@
 
 #define V_EXPORT 0x1
 #define V_READONLY 0x2
+#define V_LINENO 0x4 /* LINENO: the value is computed when read */
 
 struct var {
   struct var *next;
