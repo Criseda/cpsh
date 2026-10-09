@@ -7,8 +7,7 @@ uses [Semantic Versioning](https://semver.org/).
 ## [1.0.0] - 2026-10-09
 
 A rewrite of the shell around a proper lexer, parser and evaluator, so that
-cpsh implements most of the POSIX shell command language. Job control, `fc`
-and `vi` editing mode are not implemented yet.
+cpsh implements most of the POSIX shell command language.
 
 ### Added
 
@@ -29,19 +28,30 @@ and `vi` editing mode are not implemented yet.
 - `set` options `-a -C -e -f -n -u -v -x`, `-o pipefail`, `-o ignoreeof`.
 - `trap` (signals and `EXIT`; in a subshell, `trap` lists the parent's traps
   until one is changed), `wait`, `kill`, background jobs and `$!`.
+- Job control (`set -m`, on by default in an interactive shell on a
+  terminal): each job runs in its own process group, Ctrl-Z stops the
+  foreground job, and `jobs [-l|-p]`, `fg` and `bg` manage them; `jobs -l`
+  gives a line per process of a pipeline. Job IDs
+  (`%n`, `%+`, `%%`, `%-`, `%string`, `%?string`) work in `jobs`, `fg`,
+  `bg`, `kill` and `wait`. Finished and stopped jobs are reported before the
+  next prompt, or at once with `set -b`. A stopped job keeps its terminal
+  modes until `fg`, and an interactive shell warns once before exiting with
+  stopped jobs. `$(jobs -p)` lists the parent shell's jobs.
 - Built-ins: `:` `break` `continue` `command` `echo` `false` `getopts`
   `hash` `printf` `pwd` `read` `shift` `test`/`[` `times` `true` `type`
   `ulimit` `umask` `alias` `unalias` `export` `readonly` `unset` `set`
-  `local`.
+  `local` `jobs` `fg` `bg` `fc`.
 - From POSIX.1-2024: `read -d`, `cd -e`, `printf` argument numbers
   (`%1$s`, `*1$`), and `ulimit -H -S -a -c -d -n -s -t -v`.
 - Interactive line editor with cursor movement, history navigation and tab
-  completion of commands and file names (#3, #11).
+  completion of commands and file names (#3, #11), and POSIX vi editing
+  mode (`set -o vi`).
 - `!-n` and `!prefix` history expansion anywhere in a line, `history n`,
   `$HISTFILE` and `$HISTSIZE`.
 - `PS1`/`PS2` prompts, and mail checking (`MAIL`, `MAILCHECK`, `MAILPATH`).
-- Conformance test suite (`tests/run_tests.sh`, run by `ctest`) and a
-  benchmark script (`bench/benchmark.py`) (#7).
+- Conformance test suite (`tests/run_tests.sh`, run by `ctest`), job control
+  tests run on a pseudo-terminal (`tests/jobctl_test.py`) and a benchmark
+  script (`bench/benchmark.py`) (#7).
 - This changelog (#12).
 
 ### Changed

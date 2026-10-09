@@ -41,6 +41,13 @@ install(TARGETS cpsh RUNTIME DESTINATION bin)
 enable_testing()
 add_test(NAME conformance
          COMMAND sh ${CMAKE_SOURCE_DIR}/tests/run_tests.sh $<TARGET_FILE:cpsh>)
+# job control needs a terminal: these tests drive the shell on a pty
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME jobctl
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/jobctl_test.py
+                   $<TARGET_FILE:cpsh>)
+endif()
 
 # Uninstall target
 add_custom_target(uninstall

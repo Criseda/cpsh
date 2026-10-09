@@ -1,6 +1,7 @@
 #include "trap.h"
 
 #include "exec.h"
+#include "jobs.h"
 #include "shell.h"
 
 #define NSIGS CPSH_NSIG
@@ -8,6 +9,7 @@
 volatile sig_atomic_t pending_traps;
 volatile sig_atomic_t got_sigint;
 volatile sig_atomic_t last_trapped_sig;
+volatile sig_atomic_t got_sigchld;
 
 static volatile sig_atomic_t sig_pending[NSIGS];
 static char *traps[NSIGS]; /* NULL: default; "": ignore; else action */
@@ -60,6 +62,7 @@ void kill_list(void) {
 
 static void on_signal(int sig) {
   if (sig == SIGINT) got_sigint = 1;
+  if (sig == SIGCHLD) got_sigchld = 1;
   if (sig > 0 && sig < NSIGS && traps[sig]) {
     sig_pending[sig] = 1;
     last_trapped_sig = sig;
@@ -174,6 +177,42 @@ void trap_ignore_bg(void) {
   update_child_defaults();
 }
 
+static int is_jobctl_signal(int s) {
+  return s == SIGTSTP || s == SIGTTIN || s == SIGTTOU;
+}
+
+void trap_jobctl(int on) {
+  for (int s = 1; s < NSIGS; s++) {
+    if (!is_jobctl_signal(s) || traps[s]) continue;
+    set_disposition(s, on || ignored_on_entry[s] ? SIG_IGN : SIG_DFL);
+    shell_changed[s] = (char)on;
+  }
+  update_child_defaults();
+}
+
+void trap_ignore_jobctl(void) {
+  for (int s = 1; s < NSIGS; s++) {
+    if (!is_jobctl_signal(s) || traps[s]) continue;
+    set_disposition(s, SIG_IGN);
+    shell_changed[s] = 0; /* commands inherit it */
+  }
+  update_child_defaults();
+}
+
+void trap_sigchld(int on) {
+  got_sigchld = 0;
+  if (!traps[SIGCHLD]) set_disposition(SIGCHLD, on ? on_signal : SIG_DFL);
+}
+
+void trap_interrupt(void) {
+  if (!traps[SIGINT]) raise_exception(EX_INT);
+  if (*traps[SIGINT]) {
+    sig_pending[SIGINT] = 1;
+    last_trapped_sig = SIGINT;
+    pending_traps = 1;
+  }
+}
+
 static void print_traps(void) {
   strbuf sb;
   sb_init(&sb);
@@ -230,7 +269,8 @@ int trap_builtin(int argc, char **argv) {
       /* back to what the shell would do without a trap */
       if (iflag && rootshell && (s == SIGINT)) {
         set_disposition(s, on_signal);
-      } else if (iflag && rootshell && (s == SIGQUIT || s == SIGTERM)) {
+      } else if ((iflag && rootshell && (s == SIGQUIT || s == SIGTERM)) ||
+                 (jobctl && is_jobctl_signal(s))) {
         set_disposition(s, SIG_IGN);
       } else {
         set_disposition(s, SIG_DFL);

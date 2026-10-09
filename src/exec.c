@@ -461,6 +461,22 @@ static int evalcommand(struct node *n, int flags) {
           raise_exception(EX_ERROR);
       }
       fflush(stdout);
+      if (jobctl) {
+        struct job *jp = job_new(n);
+        if (forkshell(jp, FORK_FG) == 0) {
+          /* the parent cannot rehash for us: look a vanished command up
+           * again */
+          if (!strchr(name, '/') && !search_path && access(path, X_OK) != 0) {
+            char *p = path_lookup(name, var_get("PATH"));
+            if (p) path = p;
+          }
+          shellexec(path, argv, var_environ());
+        }
+        if (nassigns) var_scope_pop();
+        redir_pop();
+        status = waitforjob(jp);
+        break;
+      }
       pid_t pid;
       int err = spawn(path, argv, &pid);
       if (err == ENOENT && !strchr(name, '/') && !search_path) {
@@ -574,22 +590,23 @@ static int evalcase(struct node *n, int flags) {
   return status;
 }
 
-static int evalpipe(struct node *n, int flags) {
+/* Run pipeline n as job jp, forking each command straight into the job.
+ * A background job is not waited for; the result is then its last
+ * process. */
+static pid_t evalpipe(struct node *n, struct job *jp, int mode) {
   int cnt = n->u.list.n;
-  pid_t *pids = xmalloc((size_t)cnt * sizeof(pid_t));
+  pid_t pid = 0;
   int prev = -1;
   for (int i = 0; i < cnt; i++) {
     int pfd[2] = {-1, -1};
     if (i < cnt - 1 && pipe(pfd) < 0) {
       int e = errno;
       if (prev >= 0) close(prev);
-      for (int j = 0; j < i; j++) waitforpid(pids[j]);
-      free(pids);
+      waitforjob(jp);
       sh_error("pipe: %s", strerror(e));
     }
-    pid_t pid = forkshell(0);
+    pid = forkshell(jp, mode);
     if (pid == 0) {
-      free(pids);
       if (prev >= 0) {
         dup2(prev, 0);
         close(prev);
@@ -603,23 +620,13 @@ static int evalpipe(struct node *n, int flags) {
       }
       evaltree(n->u.list.items[i], EV_EXIT);
     }
-    pids[i] = pid;
     if (prev >= 0) close(prev);
     if (pfd[1] >= 0) {
       close(pfd[1]);
       prev = pfd[0];
     }
   }
-  int status = 0, failed = 0;
-  for (int i = 0; i < cnt; i++) {
-    int st = waitforpid(pids[i]);
-    if (st) failed = st;
-    if (i == cnt - 1) status = st;
-  }
-  free(pids);
-  (void)flags;
-  /* pipefail: the last non-zero status wins */
-  return optval[OPT_pipefail] && failed ? failed : status;
+  return mode == FORK_BG ? pid : waitforjob(jp);
 }
 
 static int evalnode(struct node *n, int flags) {
@@ -646,13 +653,19 @@ static int evalnode(struct node *n, int flags) {
       status = !evaltree(n->u.body, (flags & ~EV_EXIT) | EV_TESTED);
       break;
     case N_PIPE:
-      status = evalpipe(n, flags);
+      status = evalpipe(n, job_new(n), FORK_FG);
       break;
     case N_BG: {
-      pid_t pid = forkshell(1);
-      if (pid == 0) evaltree(n->u.body, EV_EXIT);
+      struct job *jp = job_new_bg(n->u.body);
+      pid_t pid;
+      if (n->u.body->type == N_PIPE) {
+        pid = evalpipe(n->u.body, jp, FORK_BG);
+      } else {
+        pid = forkshell(jp, FORK_BG);
+        if (pid == 0) evaltree(n->u.body, EV_EXIT);
+      }
+      job_announce(jp);
       backgndpid = pid;
-      jobs_add(pid);
       status = 0;
       break;
     }
@@ -662,12 +675,12 @@ static int evalnode(struct node *n, int flags) {
         if (apply_redirs(n->redirs, 0) < 0) _exit(1);
         evaltree(n->u.body, EV_EXIT);
       } else {
-        pid_t pid = forkshell(0);
-        if (pid == 0) {
+        struct job *jp = job_new(n);
+        if (forkshell(jp, FORK_FG) == 0) {
           if (apply_redirs(n->redirs, 0) < 0) _exit(1);
           evaltree(n->u.body, EV_EXIT);
         }
-        status = waitforpid(pid);
+        status = waitforjob(jp);
       }
       break;
     case N_GROUP:
@@ -766,7 +779,11 @@ int evalsource(struct source *src, int toplevel) {
   for (;;) {
     stackmark mark = stmark();
     if (toplevel) {
-      if (iflag) jobs_reap();
+      jobs_new_command();
+      if (jobctl && iflag)
+        jobs_notify();
+      else if (iflag)
+        jobs_reap();
       if (pending_traps) dotrap();
     }
     arena *a;
@@ -783,6 +800,10 @@ int evalsource(struct source *src, int toplevel) {
       arena_unref(a);
       strelease(mark);
       if (toplevel) toplevel_arena = NULL;
+      if (toplevel && src->interactive && jobs_stopped_warning()) {
+        src->eof = 0;
+        continue;
+      }
       if (toplevel && src->interactive && optval[OPT_ignoreeof]) {
         fputs("\nUse \"exit\" to leave the shell.\n", stderr);
         src->eof = 0;

@@ -4,8 +4,8 @@ Lightweight POSIX command-line shell made in C.
 
 cpsh implements most of the POSIX shell command language (XCU chapter 2)
 and can run ordinary `/bin/sh` scripts as well as serve as an interactive
-shell with line editing, history and tab completion. It is not yet fully
-POSIX compliant: see [Not implemented](#not-implemented).
+shell with line editing (emacs-style keys, or `set -o vi`), history and tab
+completion.
 
 ## [How to install](INSTALLATION.md#installation)
 
@@ -36,7 +36,8 @@ Options are the `set` options below, e.g. `cpsh -ex script.sh`.
 | Other expansions | tilde, `$(…)` and `` `…` `` command substitution, `$((…))` arithmetic (full C operator set), IFS field splitting, pathname expansion (`* ? [...]`) |
 | Aliases | `alias`, `unalias` |
 | Traps & signals | `trap` for `EXIT` and signals, `kill`, `wait` |
-| Options (`set`) | `-a -C -e -f -n -u -v -x`, `-o pipefail`, `-o ignoreeof`, `set -o` / `set +o` |
+| Job control | `set -m`, Ctrl-Z, `jobs`, `fg`, `bg`, job IDs `%n %+ %% %- %string %?string` (also in `kill` and `wait`), `set -b` |
+| Options (`set`) | `-a -b -C -e -f -m -n -u -v -x`, `-o pipefail`, `-o ignoreeof`, `set -o` / `set +o` |
 | Scripts | script files, `-c`, `-s`, stdin, `.` (dot), `eval`, `$ENV` for interactive shells, scripts without `#!` |
 
 ### Built-in utilities
@@ -44,31 +45,36 @@ Options are the `set` options below, e.g. `cpsh -ex script.sh`.
 Special built-ins: `.` `:` `break` `continue` `eval` `exec` `exit` `export`
 `readonly` `return` `set` `shift` `times` `trap` `unset`.
 
-Regular built-ins: `alias` `cd` `command` `echo` `false` `getopts` `hash`
-`history` `kill` `local` `printf` `pwd` `read` `test`/`[` `true` `type`
-`ulimit` `umask` `unalias` `wait`.
+Regular built-ins: `alias` `bg` `cd` `command` `echo` `false` `fc`
+`fg` `getopts` `hash` `history` `jobs` `kill` `local` `printf` `pwd`
+`read` `test`/`[` `true` `type` `ulimit` `umask` `unalias` `wait`.
 
 ### Interactive features
 
-- Line editing: arrow keys, Home/End, Delete, `^A ^E ^B ^F ^K ^U ^W ^L`.
+- Line editing: arrow keys, Home/End, Delete, `^A ^E ^B ^F ^K ^U ^W ^L`,
+  and `^V` to insert the next key as it is.
+- `set -o vi`: POSIX vi editing. ESC enters command mode, with counts,
+  motions (`h l w W b B e E 0 ^ $ | f F t T ; ,`), operators (`c d y` and
+  `cc dd yy`), `a A i I R C D S x X r ~ p P Y`, undo (`u U`), repeat (`.`),
+  history (`k j - + G`, `/` and `?` searches, `n N`), `_` (last word of the
+  previous command), `#`, `\` `*` `=` (completion and pathname expansion),
+  `@x` (alias `_x` as keys) and `v` (edit the line with `$VISUAL`, else
+  `$EDITOR`, else `vi`).
 - History: up/down (`^P`/`^N`), saved to `~/.cpsh_history` (or `$HISTFILE`,
   size `$HISTSIZE`), the `history` built-in, and `!!`, `!n`, `!-n`, `!prefix`
-  expansion (so `sudo !!` works).
+  expansion (so `sudo !!` works). `fc` lists (`-l`), edits (`$FCEDIT`,
+  else `ed`) and re-runs (`-s old=new`) earlier commands.
 - Tab completion of commands (built-ins, keywords, `$PATH`) and file names;
   a second tab lists the candidates.
 - `PS1`/`PS2` prompts with parameter and command expansion; when `PS1` is not
   set, cpsh shows the working directory and `user@host>`.
 - Mail notices for `$MAIL` and `$MAILPATH`, checked every `$MAILCHECK`
   seconds (default 600).
-
-### Not implemented
-
-- Job control (`set -m`, `fg`, `bg`, `jobs`, `%n` job IDs in `kill` and
-  `wait`): background jobs run, can be waited for by process ID, and are
-  reported through `$!`, but cannot be moved between foreground and
-  background. `set -m` is accepted and does nothing.
-- The `fc` built-in, and `vi` editing mode (`set -o vi` is accepted and does
-  nothing).
+- Job control, on by default when the shell runs on a terminal: Ctrl-Z stops
+  the foreground job, `fg` and `bg` continue it, and `jobs` lists them
+  (`jobs -l` with the process ID of each command of a pipeline).
+  Finished jobs are reported before the next prompt, or at once with
+  `set -b`. `+m` (or `set +m`) turns job control off.
 
 ## Performance
 
@@ -108,4 +114,6 @@ cd build && ctest            # or: sh tests/run_tests.sh bin/cpsh
 ```
 
 The suite can also be pointed at another shell (e.g. `dash`) to check the
-expectations themselves.
+expectations themselves. Job control needs a terminal, so its tests
+(`python3 tests/jobctl_test.py bin/cpsh`, also run by `ctest`) drive the
+shell on a pseudo-terminal.

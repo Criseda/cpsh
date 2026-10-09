@@ -47,13 +47,6 @@ void redir_pop(void);
 void redir_commit(void); /* make the current frame's redirections permanent */
 void redir_reset(void);
 
-/* ---- processes (jobs.c) ---- */
-pid_t forkshell(int background);
-int waitforpid(pid_t pid);
-int wait_status(int st);
-void jobs_add(pid_t pid);
-void jobs_reap(void);
-int jobs_wait(pid_t pid, int *found); /* blocking; pid 0 = all */
-char *cmdsub_run(const char *cmd, size_t *len);
+#include "jobs.h"
 
 #endif

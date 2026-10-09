@@ -108,6 +108,9 @@ struct node *parse_command(struct source *src, arena **ap, int *eof);
  * substitution runs. Nodes go in arena a. Syntax errors call sh_error(). */
 void parse_cmdsub(struct source *src, arena *a);
 
+/* The command a tree was parsed from, as malloc'd text (cmdtext.c). */
+char *node_text(struct node *n);
+
 /* The arena of the command currently being parsed, so an error handler can
  * release it after longjmp. */
 extern arena *parse_arena;

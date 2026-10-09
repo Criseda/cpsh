@@ -280,6 +280,7 @@ static int exit_builtin(int argc, char **argv) {
       sh_error("exit: %s: numeric argument required", argv[1]);
     status = atoi(argv[1]);
   }
+  if (rootshell && jobs_stopped_warning()) return 1;
   shell_exit(status & 255);
 }
 
@@ -360,6 +361,7 @@ static int set_builtin(int argc, char **argv) {
     if (strcmp(a, "--") == 0) {
       i++;
       pos_set(argc - i, argv + i);
+      setjobctl(optval[OPT_m]);
       return 0;
     }
     int on = a[0] == '-';
@@ -377,6 +379,7 @@ static int set_builtin(int argc, char **argv) {
     }
   }
   if (i < argc) pos_set(argc - i, argv + i);
+  setjobctl(optval[OPT_m]);
   return 0;
 }
 
@@ -419,9 +422,14 @@ static int dot_builtin(int argc, char **argv) {
     for (const char *s = p ? p : "";;) {
       const char *colon = strchr(s, ':');
       size_t dl = colon ? (size_t)(colon - s) : strlen(s);
-      size_t n = dl + strlen(name) + 3;
-      char *cand = xmalloc(n);
-      snprintf(cand, n, "%.*s/%s", (int)(dl ? dl : 1), dl ? s : ".", name);
+      /* an empty PATH entry means the current directory */
+      const char *dir = dl ? s : ".";
+      if (!dl) dl = 1;
+      size_t nl = strlen(name);
+      char *cand = xmalloc(dl + nl + 2);
+      memcpy(cand, dir, dl);
+      cand[dl] = '/';
+      memcpy(cand + dl + 1, name, nl + 1);
       struct stat st;
       if (stat(cand, &st) == 0 && S_ISREG(st.st_mode) &&
           access(cand, R_OK) == 0) {
@@ -460,6 +468,9 @@ int exec_builtin(int argc, char **argv) {
     if (!iflag) shell_exit(127);
     return 127;
   }
+  /* give the terminal back as the shell would on exit */
+  int jc = jobctl;
+  setjobctl(0);
   /* restore default dispositions the shell changed for itself, remembering
    * them in case the exec fails */
   const sigset_t *defs = trap_child_defaults();
@@ -477,6 +488,7 @@ int exec_builtin(int argc, char **argv) {
   int e = errno;
   for (int s = 1; s < CPSH_NSIG; s++)
     if (sigismember(defs, s) == 1) sigaction(s, &saved[s], NULL);
+  if (jc) setjobctl(1);
   sh_warn("exec: %s: %s", name, strerror(e));
   return e == ENOENT ? 127 : 126;
 }
@@ -851,22 +863,6 @@ static int ulimit_builtin(int argc, char **argv) {
   return 0;
 }
 
-static int wait_builtin(int argc, char **argv) {
-  int found;
-  if (argc < 2) return jobs_wait(0, &found);
-  int status = 0;
-  for (int i = 1; i < argc; i++) {
-    if (!is_number(argv[i])) {
-      sh_warn("wait: %s: invalid process id", argv[i]);
-      status = 2;
-      continue;
-    }
-    status = jobs_wait((pid_t)atol(argv[i]), &found);
-    if (!found) status = 127;
-  }
-  return status;
-}
-
 static const char *const keywords[] = {
     "!",    "{",  "}",     "case", "do",    "done", "elif", "else",
     "esac", "fi", "for",   "if",   "in",    "then", "until", "while", NULL};
@@ -1079,7 +1075,7 @@ static int local_builtin(int argc, char **argv) {
 
 static int kill_builtin(int argc, char **argv) {
   int sig = SIGTERM, i = 1;
-  if (argc < 2) return bad_usage("kill", "usage: kill [-s sig | -sig] pid... | -l [status]");
+  if (argc < 2) return bad_usage("kill", "usage: kill [-s sig | -sig] pid|%job... | -l [status]");
   if (strcmp(argv[1], "-l") == 0) {
     if (argc > 2) {
       int n = atoi(argv[2]);
@@ -1112,6 +1108,10 @@ static int kill_builtin(int argc, char **argv) {
   if (i < argc && strcmp(argv[i], "--") == 0) i++;
   int status = 0;
   for (; i < argc; i++) {
+    if (argv[i][0] == '%') {
+      if (jobs_kill(argv[i], sig) < 0) status = 1;
+      continue;
+    }
     char *end;
     long pid = strtol(argv[i], &end, 10);
     if (*end || end == argv[i]) {
@@ -1136,6 +1136,7 @@ static const struct builtin table[] = {
     {":", colon_builtin, 1},
     {"[", test_builtin, 0},
     {"alias", alias_builtin, 0},
+    {"bg", bg_builtin, 0},
     {"break", break_builtin, 1},
     {"cd", cd_builtin, 0},
     {"command", command_builtin, 0},
@@ -1146,9 +1147,12 @@ static const struct builtin table[] = {
     {"exit", exit_builtin, 1},
     {"export", export_builtin, 1},
     {"false", false_builtin, 0},
+    {"fc", fc_builtin, 0},
+    {"fg", fg_builtin, 0},
     {"getopts", getopts_builtin, 0},
     {"hash", hash_builtin, 0},
     {"history", history_cmd, 0},
+    {"jobs", jobs_builtin, 0},
     {"kill", kill_builtin, 0},
     {"local", local_builtin, 0},
     {"printf", printf_builtin, 0},

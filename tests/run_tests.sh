@@ -439,5 +439,38 @@ y'
 t 'MAILCHECK interval' ': > box
 printf "echo x >> box\necho y\n" | MAIL=$PWD/box MAILCHECK=600 PS1= "$CPSH" -i 2>&1' 'y'
 
+# ---------------------------------------------------------------- jobs
+# (job control itself needs a terminal: tests/jobctl_test.py)
+t 'jobs lists background jobs' 'sleep 5 & sleep 6 & jobs; kill %1 %2' '[1]-  Running                 sleep 5 &
+[2]+  Running                 sleep 6 &'
+t 'jobs command text' '{ sleep 5; echo "a  b"; } >/dev/null 2>&1 & jobs; kill %1' \
+  '[1]+  Running                 { sleep 5; echo "a  b"; } >/dev/null 2>&1 &'
+t 'jobs reports finished jobs once' '(exit 3) & true & sleep 1; jobs; jobs; echo end' '[1]-  Done(3)                 (exit 3)
+[2]+  Done                    true
+end'
+t 'jobs reports signals' 'sleep 5 & kill %1; sleep 1; jobs' '[1]+  Terminated              sleep 5'
+t 'jobs -p' 'sleep 5 & test "$(jobs -p)" = "$!" && echo ok; kill %%' 'ok'
+t 'jobs -l' 'sleep 5 & jobs -l | grep -q "^\[1\]+ $! Running" && echo ok; kill %%' 'ok'
+t 'jobs -l pipeline' 'sleep 5 | sleep 6 & jobs -l | sed "s/ [0-9][0-9]* / N /"; kill %%' \
+  '[1]+ N Running                 sleep 5
+     N                         | sleep 6 &'
+t 'background pipeline' 'set -o pipefail; false | true & wait $!; echo $?
+sleep 5 | sleep 6 & test "$(jobs -p)" != "$!" && echo ok; kill %%' '1
+ok'
+t 'job ids' 'sleep 5 & sleep 6 & sleep 7 &
+kill %sleep
+kill %?6; wait %2; echo $?; jobs %+ %-; kill %+ %-' 'script.sh: kill: %sleep: ambiguous job
+143
+[3]+  Running                 sleep 7 &
+[1]-  Running                 sleep 5 &'
+t 'wait for a job' 'sh -c "exit 4" & wait %1; echo $?; wait %1; echo $?' '4
+script.sh: wait: %1: no such job
+127'
+t 'wait without operands' '(exit 3) & wait; echo $?' '0'
+t 'fg and bg need job control' 'fg; echo $?; bg %1; echo $?' 'script.sh: fg: no job control
+1
+script.sh: bg: no job control
+1'
+
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]

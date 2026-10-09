@@ -14,6 +14,7 @@
 static char **ring;
 static int cap, start, count;
 static int base = 1;
+static int entered; /* the newest entry is the command being run */
 
 static void ensure_ring(void) {
   if (ring) return;
@@ -60,9 +61,23 @@ void history_add(const char *line) {
   size_t i = 0;
   while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
   if (i == len) return; /* blank */
+  entered = 1;
   const char *last = count ? history_get(history_last()) : NULL;
   if (last && strlen(last) == len && memcmp(last, line, len) == 0) return;
   push(line, len);
+}
+
+int history_current(void) {
+  return entered && count ? history_last() : history_last() + 1;
+}
+
+void history_replace_current(const char *text) {
+  if (!entered || !count) return;
+  size_t len = strlen(text);
+  while (len > 0 && text[len - 1] == '\n') len--;
+  int i = (start + count - 1) % cap;
+  free(ring[i]);
+  ring[i] = xstrndup(text, len);
 }
 
 void history_clear(void) {

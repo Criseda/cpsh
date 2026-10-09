@@ -58,6 +58,7 @@ void shell_exit(int status) {
   handler = NULL; /* errors from here on just exit */
   run_exit_trap();
   if (rootshell && iflag) history_save();
+  setjobctl(0);
   fflush(stdout);
   exit(exitstatus);
 }
@@ -114,7 +115,7 @@ int main(int argc, char **argv) {
   shell_exe = find_self(argv[0]);
   arg0 = argv[0];
 
-  int cflag = 0, iforce = 0, sflag = 0, i = 1;
+  int cflag = 0, iforce = 0, sflag = 0, mgiven = 0, i = 1;
   for (; i < argc; i++) {
     const char *a = argv[i];
     if ((a[0] != '-' && a[0] != '+') || !a[1]) {
@@ -136,9 +137,12 @@ int main(int argc, char **argv) {
       } else if (*p == 'o') {
         if (i + 1 >= argc) usage();
         if (setoption_name(argv[++i], on) < 0) usage();
+        mgiven |= strcmp(argv[i], "monitor") == 0;
       } else if (setoption_letter(*p, on) < 0) {
         fprintf(stderr, "%s: -%c: invalid option\n", CPSH_NAME, *p);
         usage();
+      } else if (*p == 'm') {
+        mgiven = 1;
       }
     }
   }
@@ -172,6 +176,11 @@ int main(int argc, char **argv) {
   init_pwd();
 
   signals_init(iflag);
+  /* job control is on by default in an interactive shell (POSIX), also one
+   * made interactive with -i, when stdin and stderr are a terminal; +m
+   * turns it off */
+  if (!mgiven) optval[OPT_m] = (char)(iflag && isatty(0) && isatty(2));
+  if (optval[OPT_m]) setjobctl(1);
 
   static struct source *src;
   if (script) {
