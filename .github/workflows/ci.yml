@@ -13,8 +13,6 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         sanitize: [OFF, ON]
     runs-on: ${{ matrix.os }}
-    # macOS is not supported yet (#14): its results are informational
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
       - name: Configure
