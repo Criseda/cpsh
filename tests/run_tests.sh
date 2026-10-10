@@ -240,6 +240,14 @@ t 'function redefine' 'f() { echo 1; }; f() { echo 2; }; f' '2'
 t 'unset function' 'f() { echo 1; }; unset -f f; f 2>/dev/null; echo $?' '127'
 t 'function with redirect' 'f() { echo inside; } > f.out; f; cat f.out' 'inside'
 t 'function subshell body' 'f() ( x=2 ); x=1; f; echo $x' '1'
+t 'runaway recursion is an error' 'f() { f; }; f; echo not reached' \
+  'script.sh: nesting too deep' 2
+t 'interactive shell survives runaway recursion' \
+  'printf "f() { local x=1; f; }\nset -- a b\nf\necho \$? \$# \$x\n" | PS1= "$CPSH" -i 2>&1' \
+  'cpsh: nesting too deep
+2 2'
+t 'deeply nested arithmetic is an error' 'p=$(printf "%0100000d" 0 | tr 0 "(")
+echo $(($p 1))' 'script.sh: nesting too deep' 2
 
 # ---------------------------------------------------------------- builtins
 t 'cd and pwd' 'mkdir -p d/e; cd d/e; basename "$(pwd)"; cd ..; basename "$PWD"' 'e

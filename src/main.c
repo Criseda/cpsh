@@ -108,6 +108,7 @@ static void source_env_file(void) {
 }
 
 int main(int argc, char **argv) {
+  stack_init();
   setlocale(LC_ALL, "");
   scratch = arena_new();
   rootpid = getpid();

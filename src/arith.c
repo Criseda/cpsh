@@ -82,6 +82,7 @@ static long primary(struct ap *a) {
 }
 
 static long unary(struct ap *a) {
+  stack_check(); /* every nested operator and ( comes through here */
   skipws(a);
   char c = *a->p;
   if (c == '+' || c == '-' || c == '!' || c == '~') {
