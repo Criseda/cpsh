@@ -130,36 +130,47 @@ void history_init(void) {
   load_file();
 }
 
+/* Write the history to fd, which is closed; 0 on success. */
+static int write_entries(int fd) {
+  FILE *f = fdopen(fd, "w");
+  if (!f) {
+    close(fd);
+    return -1;
+  }
+  for (int i = 0; i < count; i++) {
+    const char *h = ring[(start + i) % cap];
+    int lines = 1;
+    for (const char *c = h; *c; c++) lines += *c == '\n';
+    if (lines > 1) fprintf(f, "%s%d\n", MULTILINE_MARK, lines);
+    fprintf(f, "%s\n", h);
+  }
+  return fclose(f) == 0 ? 0 : -1;
+}
+
 void history_save(void) {
   char *path = history_path();
   if (!path || !ring) {
     free(path);
     return;
   }
-  /* write a temporary file and rename it, so a crash never truncates the
-   * existing history */
-  size_t n = strlen(path) + 8;
-  char *tmp = xmalloc(n);
-  snprintf(tmp, n, "%s.tmp", path);
-  int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-  if (fd >= 0) {
-    FILE *f = fdopen(fd, "w");
-    if (f) {
-      for (int i = 0; i < count; i++) {
-        const char *h = ring[(start + i) % cap];
-        int lines = 1;
-        for (const char *c = h; *c; c++) lines += *c == '\n';
-        if (lines > 1) fprintf(f, "%s%d\n", MULTILINE_MARK, lines);
-        fprintf(f, "%s\n", h);
-      }
-      if (fclose(f) == 0) rename(tmp, path);
-      else unlink(tmp);
-    } else {
-      close(fd);
+  /* A regular file is replaced by a complete new one, so a crash never
+   * truncates the existing history. Anything else is written in place:
+   * renaming over it would replace a symbolic link with a file, or, for a
+   * shell run as root, HISTFILE=/dev/null with a regular file. */
+  struct stat st;
+  int replace = lstat(path, &st) == 0 ? S_ISREG(st.st_mode) : errno == ENOENT;
+  if (replace) {
+    size_t n = strlen(path) + 8;
+    char *tmp = xmalloc(n);
+    snprintf(tmp, n, "%s.XXXXXX", path);
+    int fd = mkstemp(tmp); /* a name of its own: other shells may be saving */
+    if (fd >= 0 && (write_entries(fd) != 0 || rename(tmp, path) != 0))
       unlink(tmp);
-    }
+    free(tmp);
+  } else {
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd >= 0) write_entries(fd);
   }
-  free(tmp);
   free(path);
 }
 

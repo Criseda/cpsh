@@ -370,6 +370,11 @@ t 'multi-line history survives a save' 'export HISTFILE=$PWD/h2
 "$CPSH" -i -c "history" 2>/dev/null' '    1  a
 b
     2  c'
+t 'history file through a symlink' 'ln -s real link
+HISTFILE=$PWD/link "$CPSH" -i -c "history -a one" 2>/dev/null
+HISTFILE=$PWD/link "$CPSH" -i -c "history -a two" 2>/dev/null
+test -L link && cat real' 'one
+two'
 t 'printf too wide with no arguments' 'printf "%0600d" | wc -c | tr -d " "' '600'
 
 # ---------------------------------------------------------------- LINENO
