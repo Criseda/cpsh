@@ -10,20 +10,24 @@ between the shells, and the median is reported.
 """
 import argparse
 import os
+import re
 import resource
 import shutil
 import statistics
 import subprocess
+import sys
 import tempfile
 import time
 
 N = 2000
+# macOS has no /bin/true
+TRUE = "/bin/true" if os.path.exists("/bin/true") else "/usr/bin/true"
 
 
 def workloads():
     return {
         # fork/exec cost: an external command given by absolute path
-        "external /bin/true": ["/bin/true"] * N,
+        f"external {TRUE}": [TRUE] * N,
         # PATH search on every command
         "external via PATH (uname)": ["uname"] * N,
         # arguments and output
@@ -48,16 +52,26 @@ def run(shell, script, home):
 
 
 def peak_rss_kb(shell, script, home):
-    """Peak RSS of the shell process itself (via /usr/bin/time if present)."""
+    """Peak RSS of the shell process itself (via /usr/bin/time if present:
+    GNU time on Linux, BSD time -l elsewhere)."""
     timebin = shutil.which("time") or "/usr/bin/time"
     if not os.path.exists(timebin):
         return None
+    bsd = sys.platform == "darwin" or "bsd" in sys.platform
     env = {"PATH": "/usr/bin:/bin", "HOME": home, "USER": "bench"}
+    args = [timebin, "-l", shell] if bsd else [timebin, "-f", "%M", shell]
     with open(script, "rb") as stdin:
-        p = subprocess.run([timebin, "-f", "%M", shell], stdin=stdin,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
+        p = subprocess.run(args, stdin=stdin, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.PIPE, env=env)
+    err = p.stderr.decode()
+    if bsd:
+        # macOS reports bytes, the BSDs kilobytes
+        m = re.search(r"(\d+)\s+maximum resident set size", err)
+        if not m:
+            return None
+        return int(m.group(1)) // 1024 if sys.platform == "darwin" else int(m.group(1))
     try:
-        return int(p.stderr.decode().strip().splitlines()[-1])
+        return int(err.strip().splitlines()[-1])
     except (ValueError, IndexError):
         return None
 
