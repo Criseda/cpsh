@@ -103,6 +103,7 @@ t 'trailing newlines stripped' 'x=$(printf "a\n\n\n"); echo "[$x]"' '[a]'
 t 'cmdsub status' 'x=$(exit 4); echo $?' '4'
 t 'cmdsub with case' 'echo $(case a in a) echo yes;; esac)' 'yes'
 t 'cmdsub quoted' 'echo "$(echo "a  b")"' 'a  b'
+t 'cmdsub drops NUL bytes' 'x=$(printf "a\0b\0\0c"); echo "$x"' 'abc'
 
 # ---------------------------------------------------------------- arithmetic
 t 'arithmetic' 'echo $((1+2*3)) $(( (1+2)*3 )) $((7/2)) $((7%3)) $((-5+2))' '7 9 3 1 -3'
