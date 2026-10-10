@@ -311,6 +311,15 @@ t 'colon true false' ': && true && ! false && echo ok' 'ok'
 t 'exec replaces' 'exec echo replaced; echo not reached' 'replaced'
 t 'hash' 'hash ls; hash | grep -c /ls' '1'
 t 'kill -l' 'kill -l 15' 'TERM'
+t 'kill -l names and statuses' 'kill -l TERM SIGHUP 129; kill -l 0 nosuch 2>/dev/null; echo $?' '15
+1
+HUP
+1'
+t 'kill -l lists by number' 'kill -l | head -3' 'HUP
+INT
+QUIT'
+t 'trap WINCH' 'trap "echo winch" WINCH; kill -WINCH $$; echo after' 'winch
+after'
 
 # ---------------------------------------------------------------- options
 t 'set -e' 'set -e; echo a; false; echo b' 'a' 1
