@@ -18,6 +18,7 @@ enum {
   OPT_u, /* nounset */
   OPT_v, /* verbose */
   OPT_x, /* xtrace */
+  OPT_emacs,
   OPT_ignoreeof,
   OPT_nolog,
   OPT_pipefail,

@@ -4,6 +4,36 @@ All notable changes to cpsh are documented in this file. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `set -o emacs` (turning off `vi`, and the other way round), and `test -k`.
+
+### Fixed
+
+- Saving the history renamed a temporary file over `$HISTFILE`: a shell run
+  as root with `HISTFILE=/dev/null` replaced `/dev/null` with a regular file,
+  a history file that was a symbolic link became a regular file, and shells
+  exiting together shared one temporary file. Only a regular history file is
+  replaced now, from a temporary file of its own.
+- The line editor moved over and deleted bytes rather than characters:
+  Backspace left part of a UTF-8 character behind, and the cursor was drawn
+  in the wrong column after non-ASCII or wide characters. Both editing modes
+  now work on whole characters.
+- `trap` and `kill` rejected `WINCH`, `INFO`, `IO`, `EMT`, `PWR` and
+  `STKFLT`, `kill -l` listed the signals out of order on macOS, and
+  `kill -l NAME` printed `EXIT` instead of the signal's number.
+- Runaway recursion (a function calling itself, or deeply nested commands or
+  arithmetic) crashed the shell; it is now an error, "nesting too deep".
+- A NUL byte in the output of a command substitution cut it short; NUL bytes
+  are now dropped, as in other shells.
+- CMake put the binary in a `bin` directory beside the build directory
+  rather than in the source tree, and overrode
+  `-DCMAKE_RUNTIME_OUTPUT_DIRECTORY`.
+- The benchmark ran `/bin/true`, which macOS does not have, and measured
+  memory only with GNU `time`.
+
 ## [1.0.0] - 2026-10-09
 
 A rewrite of the shell around a proper lexer, parser and evaluator, so that

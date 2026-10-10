@@ -16,8 +16,8 @@ const struct optdef optdefs[NOPTS] = {
     {'e', "errexit"},   {'f', "noglob"},    {'h', "hashall"},
     {'i', "interactive"}, {'m', "monitor"}, {'n', "noexec"},
     {'s', "stdin"},     {'u', "nounset"},   {'v', "verbose"},
-    {'x', "xtrace"},    {0, "ignoreeof"},   {0, "nolog"},
-    {0, "pipefail"},    {0, "vi"},
+    {'x', "xtrace"},    {0, "emacs"},       {0, "ignoreeof"},
+    {0, "nolog"},       {0, "pipefail"},    {0, "vi"},
 };
 
 int exitstatus;
@@ -41,6 +41,9 @@ int setoption_name(const char *name, int on) {
     if (strcmp(optdefs[i].name, name) == 0) {
       if (i == OPT_i || i == OPT_s) return -1;
       optval[i] = (char)on;
+      /* the editing modes exclude each other */
+      if (on && i == OPT_emacs) optval[OPT_vi] = 0;
+      if (on && i == OPT_vi) optval[OPT_emacs] = 0;
       return 0;
     }
   return -1;
@@ -108,6 +111,7 @@ static void source_env_file(void) {
 }
 
 int main(int argc, char **argv) {
+  stack_init();
   setlocale(LC_ALL, "");
   scratch = arena_new();
   rootpid = getpid();
