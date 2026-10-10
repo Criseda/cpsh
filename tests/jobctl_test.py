@@ -9,6 +9,7 @@ expected output. The `fc` cases are here too, as history is only kept by
 interactive shells.
 """
 
+import locale
 import os
 import pty
 import re
@@ -28,9 +29,9 @@ class Failure(Exception):
 
 
 class Shell:
-    def __init__(self, term="dumb", wrapped=False):
+    def __init__(self, term="dumb", wrapped=False, env=None):
         env = dict(os.environ, PS1="$ ", PS2="> ", TERM=term,
-                   HISTFILE="/dev/null", ENV="", COLUMNS="200")
+                   HISTFILE="/dev/null", ENV="", COLUMNS="200", **(env or {}))
         env.pop("MAIL", None)
         env.pop("MAILPATH", None)
         self.pid, self.fd = pty.fork()
@@ -248,6 +249,45 @@ def t_editing_keys():
     check(vi_line(sh, "\x1b[A\x01" + "\x1b[C" * 5 + "\x1b[3~\r"), "XB")
     # ^V inserts a tab rather than completing
     check(vi_line(sh, "echo 'a\x16\tb' | tr '\\t' T\r"), "aTb")
+
+
+def utf8_locale():
+    """A UTF-8 locale this system has, or None."""
+    for name in ("C.UTF-8", "en_US.UTF-8"):
+        try:
+            locale.setlocale(locale.LC_CTYPE, name)
+            return name
+        except locale.Error:
+            pass
+        finally:
+            locale.setlocale(locale.LC_CTYPE, "C")
+    return None
+
+
+def t_utf8_editing():
+    # keys move over and delete whole characters, not their bytes
+    lang = utf8_locale()
+    sh = new_shell(term="xterm", env={"LC_ALL": lang} if lang else None)
+    check(vi_line(sh, "echo 日本語\x7f" + UP + "\r"), "日本")
+    check(vi_line(sh, "echo 日本語" + UP + "\x01" + "\x1b[C" * 6 + "\x1b[3~\r"),
+          "日語")
+    check(vi_line(sh, "echo é日" + UP + "\x01" + "\x06" * 6 + "\x02x\r"), "Xé日")
+    if lang:
+        # the cursor is placed by column: wide characters take two
+        sh.buf = ""
+        sh.send("echo 日本\x02")
+        check(sh.expect(r"日本\x1b\[K\x1b\[(\d+)C").group(1), "9")
+        sh.send("\x03")
+        sh.expect(r"\^C\n\$ ")
+    sh.run("set -o vi")
+    for keys, out in [
+        ("echo 日本語" + UP + ESC + "0wx\r", "本語"),
+        ("echo 日本 語" + UP + ESC + "0wdw\r", "語"),
+        ("echo 日本語" + UP + ESC + "0wf語r字\r", "日本字"),
+        ("echo 日本語" + ESC + "X\r", "日語"),
+        ("echo 日本語" + UP + ESC + "0wRxy\x7f" + ESC + "\r", "X本語"),
+    ]:
+        check(vi_line(sh, keys), out)
 
 
 def t_vi_mode():
