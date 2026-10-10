@@ -37,7 +37,7 @@ Options are the `set` options below, e.g. `cpsh -ex script.sh`.
 | Aliases | `alias`, `unalias` |
 | Traps & signals | `trap` for `EXIT` and signals, `kill`, `wait` |
 | Job control | `set -m`, Ctrl-Z, `jobs`, `fg`, `bg`, job IDs `%n %+ %% %- %string %?string` (also in `kill` and `wait`), `set -b` |
-| Options (`set`) | `-a -b -C -e -f -m -n -u -v -x`, `-o pipefail`, `-o ignoreeof`, `set -o` / `set +o` |
+| Options (`set`) | `-a -b -C -e -f -m -n -u -v -x`, `-o pipefail`, `-o ignoreeof`, `-o vi`, `-o emacs`, `set -o` / `set +o` |
 | Scripts | script files, `-c`, `-s`, stdin, `.` (dot), `eval`, `$ENV` for interactive shells, scripts without `#!` |
 
 ### Built-in utilities

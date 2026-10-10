@@ -320,6 +320,8 @@ INT
 QUIT'
 t 'trap WINCH' 'trap "echo winch" WINCH; kill -WINCH $$; echo after' 'winch
 after'
+t 'test -k' 'mkdir d; chmod +t d; test -k d && echo sticky; test -k . || echo plain' 'sticky
+plain'
 
 # ---------------------------------------------------------------- options
 t 'set -e' 'set -e; echo a; false; echo b' 'a' 1
@@ -331,6 +333,11 @@ t 'set -n' 'set -n; echo not run' ''
 t 'set -a' 'set -a; Z=1; sh -c "echo \$Z"' '1'
 t 'dollar dash' 'set -e; case $- in *e*) echo has_e;; esac' 'has_e'
 t 'set -o list' 'set -o | grep -c errexit' '1'
+t 'set -o emacs and vi' 'set -o vi; set -o emacs; set -o | grep -E "^(emacs|vi) "
+set -o vi; set +o | grep -E "emacs|vi"' 'emacs           on
+vi              off
+set +o emacs
+set -o vi'
 
 # ---------------------------------------------------------------- scripts & misc
 t 'script args' 'printf "echo \$0 \$1 \$#\n" > s.sh; "$CPSH" s.sh a b' 's.sh a 2'
