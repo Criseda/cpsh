@@ -17,9 +17,9 @@ extern int jobctl; /* job control is active in this shell */
 
 /* forkshell() modes */
 enum {
-  FORK_FG,   /* part of a foreground job */
-  FORK_BG,   /* an asynchronous list */
-  FORK_NOJOB /* command substitution: no process group of its own */
+    FORK_FG,   /* part of a foreground job */
+    FORK_BG,   /* an asynchronous list */
+    FORK_NOJOB /* command substitution: no process group of its own */
 };
 
 /* Turn job control on or off to match `set -m`; only the top-level shell

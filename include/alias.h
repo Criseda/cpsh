@@ -2,10 +2,10 @@
 #define ALIAS_H
 
 struct alias {
-  struct alias *next;
-  char *name;
-  char *value;
-  int active; /* >0 while its text is being read (prevents recursion) */
+    struct alias *next;
+    char *name;
+    char *value;
+    int active; /* >0 while its text is being read (prevents recursion) */
 };
 
 struct alias *alias_lookup(const char *name);

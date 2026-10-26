@@ -8,11 +8,11 @@
 #define V_LINENO 0x4 /* LINENO: the value is computed when read */
 
 struct var {
-  struct var *next;
-  char *name;
-  char *val; /* NULL when declared (export/readonly) but unset */
-  int flags;
-  unsigned hash;
+    struct var *next;
+    char *name;
+    char *val; /* NULL when declared (export/readonly) but unset */
+    int flags;
+    unsigned hash;
 };
 
 void vars_init(char **envp);
@@ -39,8 +39,8 @@ int var_local(const char *name); /* save var in current scope; -1 on error */
 
 /* Positional parameters ($1...). */
 struct posparams {
-  int argc;
-  char **argv; /* malloc'd strings, argv[argc] == NULL */
+    int argc;
+    char **argv; /* malloc'd strings, argv[argc] == NULL */
 };
 extern struct posparams pos;
 void pos_set(int argc, char **argv); /* copies */

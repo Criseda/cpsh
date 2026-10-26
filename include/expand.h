@@ -5,8 +5,8 @@
 
 /* Growable argument vector allocated on the scratch stack. */
 struct arglist {
-  char **v; /* NULL-terminated */
-  int n, cap;
+    char **v; /* NULL-terminated */
+    int n, cap;
 };
 
 void arglist_init(struct arglist *al);

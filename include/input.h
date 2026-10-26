@@ -9,35 +9,35 @@ struct alias;
 
 /* Text pushed in front of the input, used for alias substitution. */
 struct strpush {
-  struct strpush *prev;
-  char *s;
-  size_t pos;
-  struct alias *alias;
+    struct strpush *prev;
+    char *s;
+    size_t pos;
+    struct alias *alias;
 };
 
 struct source {
-  struct source *prev;
-  int fd;          /* -1 for string sources */
-  const char *str; /* string source */
-  size_t strpos;
-  char *buf; /* fd buffer */
-  size_t bufpos, buflen;
-  int unbuffered;  /* read byte-at-a-time (shared, unseekable stdin) */
-  int seekable;    /* stdin we can lseek back to share with children */
-  int interactive; /* read lines through the line editor */
-  char *line;      /* current interactive line */
-  size_t linepos, linelen;
-  strbuf hist; /* interactive: text of the command being read */
-  struct strpush *push;
-  int unget[4];
-  int nunget;
-  int lineno;
-  int nextprompt; /* 1 = PS1, 2 = PS2 */
-  int eof;
-  /* While non-NULL, every character read is appended here (and removed
-   * again when pushed back), so the lexer can keep the raw text of a
-   * $(...) that the parser has consumed. */
-  strbuf *rec;
+    struct source *prev;
+    int fd;          /* -1 for string sources */
+    const char *str; /* string source */
+    size_t strpos;
+    char *buf; /* fd buffer */
+    size_t bufpos, buflen;
+    int unbuffered;  /* read byte-at-a-time (shared, unseekable stdin) */
+    int seekable;    /* stdin we can lseek back to share with children */
+    int interactive; /* read lines through the line editor */
+    char *line;      /* current interactive line */
+    size_t linepos, linelen;
+    strbuf hist; /* interactive: text of the command being read */
+    struct strpush *push;
+    int unget[4];
+    int nunget;
+    int lineno;
+    int nextprompt; /* 1 = PS1, 2 = PS2 */
+    int eof;
+    /* While non-NULL, every character read is appended here (and removed
+     * again when pushed back), so the lexer can keep the raw text of a
+     * $(...) that the parser has consumed. */
+    strbuf *rec;
 };
 
 struct source *src_string(const char *s);
