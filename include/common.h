@@ -47,8 +47,8 @@ char *xstrndup(const char *s, size_t n);
 
 /* ---- growable string ---- */
 typedef struct {
-  char *s;
-  size_t len, cap;
+    char *s;
+    size_t len, cap;
 } strbuf;
 
 void sb_init(strbuf *sb);
@@ -66,8 +66,8 @@ void sb_free(strbuf *sb);
  * even when an error unwinds the stack with longjmp. */
 typedef struct arena arena;
 typedef struct {
-  void *chunk;
-  size_t off;
+    void *chunk;
+    size_t off;
 } stackmark;
 
 arena *arena_new(void);
@@ -89,7 +89,7 @@ void strelease(stackmark m);
  * sh_error() prints a diagnostic and unwinds to the innermost handler with
  * longjmp. In a forked child (handler == NULL) it exits instead. */
 struct jmploc {
-  jmp_buf buf;
+    jmp_buf buf;
 };
 extern struct jmploc *handler;
 

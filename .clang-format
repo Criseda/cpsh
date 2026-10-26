@@ -1,0 +1,15 @@
+# K&R style: 4-space indents, function braces on their own line,
+# every if/for/while body in braces.
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 80
+BreakBeforeBraces: Linux
+InsertBraces: true
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+IndentCaseLabels: false
+PointerAlignment: Right
+SortIncludes: false

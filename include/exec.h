@@ -32,10 +32,10 @@ NORETURN void shellexec(const char *path, char **argv, char **envp);
 
 /* ---- functions (exec.c) ---- */
 struct func {
-  struct func *next;
-  char *name;
-  struct node *body;
-  arena *a;
+    struct func *next;
+    char *name;
+    struct node *body;
+    arena *a;
 };
 struct func *func_lookup(const char *name);
 int func_unset(const char *name);

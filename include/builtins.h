@@ -4,9 +4,9 @@
 #include "common.h"
 
 struct builtin {
-  const char *name;
-  int (*fn)(int argc, char **argv);
-  int special; /* POSIX special built-in */
+    const char *name;
+    int (*fn)(int argc, char **argv);
+    int special; /* POSIX special built-in */
 };
 
 const struct builtin *find_builtin(const char *name);
