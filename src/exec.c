@@ -732,6 +732,7 @@ static int evalnode(struct node *n, int flags) {
 
 int evaltree(struct node *n, int flags) {
   int status = 0;
+  stack_check();
   if (nflag && !iflag) n = NULL;
   if (n) {
     cur_lineno = n->lineno;

@@ -102,6 +102,11 @@ NORETURN void raise_exception(int e);
 NORETURN void sh_error(const char *fmt, ...) PRINTFLIKE(1, 2);
 void sh_warn(const char *fmt, ...) PRINTFLIKE(1, 2);
 
+/* Recursion (functions, eval, nested commands and expressions) fails with
+ * an error before it can overflow the stack and crash the shell. */
+void stack_init(void); /* call first thing in main */
+void stack_check(void);
+
 /* ---- misc helpers ---- */
 int is_number(const char *s);
 int xwrite(int fd, const void *buf, size_t n);

@@ -1077,19 +1077,32 @@ static int kill_builtin(int argc, char **argv) {
   int sig = SIGTERM, i = 1;
   if (argc < 2) return bad_usage("kill", "usage: kill [-s sig | -sig] pid|%job... | -l [status]");
   if (strcmp(argv[1], "-l") == 0) {
-    if (argc > 2) {
-      int n = atoi(argv[2]);
-      if (n > 128) n -= 128;
-      const char *nm = signal_name(n);
-      if (!nm) {
-        sh_warn("kill: %s: invalid signal", argv[2]);
-        return 1;
-      }
-      puts(nm);
-    } else {
+    if (argc == 2) {
       kill_list();
+      return 0;
     }
-    return 0;
+    /* a number (or exit status) gives its name, a name its number */
+    int status = 0;
+    for (i = 2; i < argc; i++) {
+      if (is_number(argv[i])) {
+        long n = atol(argv[i]);
+        if (n > 128) n -= 128;
+        const char *nm = n > 0 && n < CPSH_NSIG ? signal_name((int)n) : NULL;
+        if (nm) {
+          puts(nm);
+          continue;
+        }
+      } else {
+        int n = signal_number(argv[i]);
+        if (n > 0) {
+          printf("%d\n", n);
+          continue;
+        }
+      }
+      sh_warn("kill: %s: invalid signal", argv[i]);
+      status = 1;
+    }
+    return status;
   }
   if (strcmp(argv[1], "-s") == 0) {
     if (argc < 3) return bad_usage("kill", "-s requires a signal name");

@@ -351,6 +351,7 @@ static int is_compound_start(struct parser *P) {
 
 static struct node *parse_compound(struct parser *P) {
   struct node *n;
+  stack_check();
   if (peek(P) == T_LPAREN) {
     consume(P);
     n = mknode(P, N_SUBSHELL);

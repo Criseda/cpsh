@@ -103,6 +103,7 @@ t 'trailing newlines stripped' 'x=$(printf "a\n\n\n"); echo "[$x]"' '[a]'
 t 'cmdsub status' 'x=$(exit 4); echo $?' '4'
 t 'cmdsub with case' 'echo $(case a in a) echo yes;; esac)' 'yes'
 t 'cmdsub quoted' 'echo "$(echo "a  b")"' 'a  b'
+t 'cmdsub drops NUL bytes' 'x=$(printf "a\0b\0\0c"); echo "$x"' 'abc'
 
 # ---------------------------------------------------------------- arithmetic
 t 'arithmetic' 'echo $((1+2*3)) $(( (1+2)*3 )) $((7/2)) $((7%3)) $((-5+2))' '7 9 3 1 -3'
@@ -240,6 +241,14 @@ t 'function redefine' 'f() { echo 1; }; f() { echo 2; }; f' '2'
 t 'unset function' 'f() { echo 1; }; unset -f f; f 2>/dev/null; echo $?' '127'
 t 'function with redirect' 'f() { echo inside; } > f.out; f; cat f.out' 'inside'
 t 'function subshell body' 'f() ( x=2 ); x=1; f; echo $x' '1'
+t 'runaway recursion is an error' 'f() { f; }; f; echo not reached' \
+  'script.sh: nesting too deep' 2
+t 'interactive shell survives runaway recursion' \
+  'printf "f() { local x=1; f; }\nset -- a b\nf\necho \$? \$# \$x\n" | PS1= "$CPSH" -i 2>&1' \
+  'cpsh: nesting too deep
+2 2'
+t 'deeply nested arithmetic is an error' 'p=$(printf "%0100000d" 0 | tr 0 "(")
+echo $(($p 1))' 'script.sh: nesting too deep' 2
 
 # ---------------------------------------------------------------- builtins
 t 'cd and pwd' 'mkdir -p d/e; cd d/e; basename "$(pwd)"; cd ..; basename "$PWD"' 'e
@@ -303,6 +312,17 @@ t 'colon true false' ': && true && ! false && echo ok' 'ok'
 t 'exec replaces' 'exec echo replaced; echo not reached' 'replaced'
 t 'hash' 'hash ls; hash | grep -c /ls' '1'
 t 'kill -l' 'kill -l 15' 'TERM'
+t 'kill -l names and statuses' 'kill -l TERM SIGHUP 129; kill -l 0 nosuch 2>/dev/null; echo $?' '15
+1
+HUP
+1'
+t 'kill -l lists by number' 'kill -l | head -3' 'HUP
+INT
+QUIT'
+t 'trap WINCH' 'trap "echo winch" WINCH; kill -WINCH $$; echo after' 'winch
+after'
+t 'test -k' 'mkdir d; chmod +t d; test -k d && echo sticky; test -k . || echo plain' 'sticky
+plain'
 
 # ---------------------------------------------------------------- options
 t 'set -e' 'set -e; echo a; false; echo b' 'a' 1
@@ -314,6 +334,11 @@ t 'set -n' 'set -n; echo not run' ''
 t 'set -a' 'set -a; Z=1; sh -c "echo \$Z"' '1'
 t 'dollar dash' 'set -e; case $- in *e*) echo has_e;; esac' 'has_e'
 t 'set -o list' 'set -o | grep -c errexit' '1'
+t 'set -o emacs and vi' 'set -o vi; set -o emacs; set -o | grep -E "^(emacs|vi) "
+set -o vi; set +o | grep -E "emacs|vi"' 'emacs           on
+vi              off
+set +o emacs
+set -o vi'
 
 # ---------------------------------------------------------------- scripts & misc
 t 'script args' 'printf "echo \$0 \$1 \$#\n" > s.sh; "$CPSH" s.sh a b' 's.sh a 2'
@@ -370,6 +395,11 @@ t 'multi-line history survives a save' 'export HISTFILE=$PWD/h2
 "$CPSH" -i -c "history" 2>/dev/null' '    1  a
 b
     2  c'
+t 'history file through a symlink' 'ln -s real link
+HISTFILE=$PWD/link "$CPSH" -i -c "history -a one" 2>/dev/null
+HISTFILE=$PWD/link "$CPSH" -i -c "history -a two" 2>/dev/null
+test -L link && cat real' 'one
+two'
 t 'printf too wide with no arguments' 'printf "%0600d" | wc -c | tr -d " "' '600'
 
 # ---------------------------------------------------------------- LINENO

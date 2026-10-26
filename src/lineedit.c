@@ -5,6 +5,8 @@
 #include <poll.h>
 #include <sys/ioctl.h>
 #include <termios.h>
+#include <wchar.h>
+#include <wctype.h>
 
 #include "alias.h"
 #include "builtins.h"
@@ -54,21 +56,53 @@ static int tty_cols(void) {
   return 80;
 }
 
+/* ---- characters ----
+ * The line is kept as bytes, but the cursor moves and edits act on whole
+ * UTF-8 characters, and the display allows for their widths. */
+
+static int is_cont(char c) { return ((unsigned char)c & 0xC0) == 0x80; }
+
+/* Start of the character after the one at p. */
+static size_t char_next(const char *s, size_t len, size_t p) {
+  if (p < len) p++;
+  while (p < len && is_cont(s[p])) p++;
+  return p;
+}
+
+/* Start of the character before p. */
+static size_t char_prev(const char *s, size_t p) {
+  if (p > 0) p--;
+  while (p > 0 && is_cont(s[p])) p--;
+  return p;
+}
+
+/* Columns taken on the terminal by the n-byte character at s. */
+static size_t char_width(const char *s, size_t n) {
+  mbstate_t st;
+  memset(&st, 0, sizeof(st));
+  wchar_t wc;
+  size_t r = mbrtowc(&wc, s, n, &st);
+  if (r == (size_t)-1 || r == (size_t)-2) return 1;
+  int w = wcwidth(wc);
+  return w < 0 ? 1 : (size_t)w;
+}
+
 /* Width of text, skipping ANSI escape sequences. */
 static size_t visible_width(const char *s) {
-  size_t w = 0;
-  while (*s) {
-    if (*s == '\x1b') {
-      s++;
-      if (*s == '[') {
-        s++;
-        while (*s && !isalpha((unsigned char)*s)) s++;
-        if (*s) s++;
+  size_t w = 0, len = strlen(s), p = 0;
+  while (p < len) {
+    if (s[p] == '\x1b') {
+      p++;
+      if (s[p] == '[') {
+        p++;
+        while (p < len && !isalpha((unsigned char)s[p])) p++;
+        if (p < len) p++;
       }
       continue;
     }
-    if (((unsigned char)*s & 0xC0) != 0x80) w++;
-    s++;
+    size_t q = char_next(s, len, p);
+    w += char_width(s + p, q - p);
+    p = q;
   }
   return w;
 }
@@ -79,16 +113,31 @@ static void outs(const char *s) { out(s, strlen(s)); }
 static void refresh(struct editor *e) {
   strbuf sb;
   sb_init(&sb);
+  const char *s = e->buf.s ? e->buf.s : "";
   size_t avail = (size_t)e->cols > e->pwidth + 1 ? e->cols - e->pwidth - 1 : 1;
-  /* scroll horizontally so the cursor stays visible */
-  size_t off = e->pos >= avail ? e->pos - avail + 1 : 0;
-  size_t len = e->buf.len - off;
-  if (len > avail) len = avail;
+  /* scroll horizontally so the cursor stays visible: show as much of the
+   * line before it as fits, then what fits after */
+  size_t off = e->pos, before = 0;
+  while (off > 0) {
+    size_t p = char_prev(s, off);
+    size_t w = char_width(s + p, off - p);
+    if (before + w >= avail) break;
+    before += w;
+    off = p;
+  }
+  size_t end = off, shown = 0;
+  while (end < e->buf.len) {
+    size_t q = char_next(s, e->buf.len, end);
+    size_t w = char_width(s + end, q - end);
+    if (shown + w > avail) break;
+    shown += w;
+    end = q;
+  }
   sb_puts(&sb, "\r");
   sb_puts(&sb, e->prompt);
-  sb_putn(&sb, e->buf.s ? e->buf.s + off : "", len);
+  sb_putn(&sb, s + off, end - off);
   sb_puts(&sb, "\x1b[K\r");
-  size_t col = e->pwidth + (e->pos - off);
+  size_t col = e->pwidth + before;
   if (col) {
     char tmp[32];
     snprintf(tmp, sizeof(tmp), "\x1b[%zuC", col);
@@ -434,12 +483,12 @@ static void special_key(struct editor *e, int k) {
   switch (k) {
     case K_UP: history_move(e, -1); break;
     case K_DOWN: history_move(e, 1); break;
-    case K_RIGHT: if (e->pos < e->buf.len) e->pos++; break;
-    case K_LEFT: if (e->pos > 0) e->pos--; break;
+    case K_RIGHT: e->pos = char_next(e->buf.s, e->buf.len, e->pos); break;
+    case K_LEFT: e->pos = char_prev(e->buf.s, e->pos); break;
     case K_HOME: e->pos = 0; break;
     case K_END: e->pos = e->buf.len; break;
     case K_DEL:
-      if (e->pos < e->buf.len) delete_range(e, e->pos, e->pos + 1);
+      delete_range(e, e->pos, char_next(e->buf.s, e->buf.len, e->pos));
       break;
   }
 }
@@ -463,7 +512,9 @@ static char *vi_change;    /* keys of the last change, for `.` */
 static char *vi_yank;      /* text last deleted or yanked */
 static char *vi_pattern;   /* last history search */
 static int vi_searchdir;   /* its direction: -1 older (`/`), 1 newer */
-static int vi_findcmd, vi_findch; /* last f F t T */
+static int vi_findcmd;     /* last f F t T */
+static char vi_findch[4];  /* and the character it looked for */
+static size_t vi_findlen;
 
 static void beep(void) { out("\a", 1); }
 
@@ -474,7 +525,7 @@ static int is_blank(int c) { return c == ' ' || c == '\t'; }
 static int cls(char ch, int big) {
   unsigned char c = (unsigned char)ch;
   if (is_blank(c)) return 0;
-  return big || isalnum(c) || c == '_' ? 1 : 2;
+  return big || isalnum(c) || c == '_' || c >= 0x80 ? 1 : 2;
 }
 
 static size_t word_fwd(const struct editor *e, size_t p, int big) {
@@ -507,24 +558,52 @@ static size_t word_end(const struct editor *e, size_t p, int big) {
   if (p >= len) return len - 1;
   int k = cls(s[p], big);
   while (p + 1 < len && cls(s[p + 1], big) == k) p++;
+  while (p > 0 && is_cont(s[p])) p--;
   return p;
 }
 
-/* The count'th ch for f F t T. */
-static int find_char(const struct editor *e, int cmd, int ch, int count,
-                     size_t *to) {
+/* Read the rest of the character whose first byte is c into buf (which
+ * holds 4 bytes); its length. */
+static size_t read_char(struct editor *e, int c, char *buf) {
+  size_t n = 0;
+  buf[n++] = (char)c;
+  int more = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : 0;
+  while (more-- > 0) {
+    int k = getkey(e);
+    if (k < 0 || !is_cont((char)k)) {
+      if (k >= 0) ungetkey(e, k);
+      break;
+    }
+    buf[n++] = (char)k;
+  }
+  return n;
+}
+
+/* The count'th character ch (n bytes) for f F t T. */
+static int find_char(const struct editor *e, int cmd, const char *ch, size_t n,
+                     int count, size_t *to) {
   const char *s = e->buf.s;
-  long len = (long)e->buf.len, p = (long)e->pos;
-  int step = cmd == 'f' || cmd == 't' ? 1 : -1;
+  size_t len = e->buf.len, p = e->pos;
+  int fwd = cmd == 'f' || cmd == 't';
   while (count-- > 0) {
-    long q = p + step;
-    while (q >= 0 && q < len && s[q] != ch) q += step;
-    if (q < 0 || q >= len) return 0;
+    size_t q = p;
+    for (;;) {
+      if (fwd) {
+        q = char_next(s, len, q);
+        if (q >= len) return 0;
+      } else {
+        if (q == 0) return 0;
+        q = char_prev(s, q);
+      }
+      if (q + n <= len && memcmp(s + q, ch, n) == 0 &&
+          (q + n == len || !is_cont(s[q + n])))
+        break;
+    }
     p = q;
   }
-  if (cmd == 't') p--;
-  if (cmd == 'T') p++;
-  *to = (size_t)p;
+  if (cmd == 't') p = char_prev(s, p);
+  if (cmd == 'T') p = char_next(s, len, p);
+  *to = p;
   return 1;
 }
 
@@ -536,20 +615,21 @@ static int vi_motion(struct editor *e, int c, int count, int op, size_t *to,
                      int *incl) {
   const char *s = e->buf.s;
   size_t len = e->buf.len, p = e->pos;
-  size_t last = len ? len - 1 : 0;
+  size_t last = char_prev(s, len);
   *incl = 0;
   switch (c) {
     case 'h':
     case 8:
     case 127:
       if (p == 0) return 0;
-      *to = p > (size_t)count ? p - (size_t)count : 0;
+      while (count-- > 0 && p > 0) p = char_prev(s, p);
+      *to = p;
       return 1;
     case 'l':
     case ' ':
-      if (op ? p >= len : p + 1 >= len) return 0;
-      p += (size_t)count;
-      *to = p > (op ? len : last) ? (op ? len : last) : p;
+      if (op ? p >= len : char_next(s, len, p) >= len) return 0;
+      while (count-- > 0 && p < (op ? len : last)) p = char_next(s, len, p);
+      *to = p;
       return 1;
     case 'w':
     case 'W':
@@ -585,7 +665,9 @@ static int vi_motion(struct editor *e, int c, int count, int op, size_t *to,
       *incl = len > 0;
       return 1;
     case '|':
-      *to = (size_t)count - 1 > last ? last : (size_t)count - 1;
+      p = 0;
+      while (--count > 0 && p < last) p = char_next(s, len, p);
+      *to = p;
       return 1;
     case 'f':
     case 'F':
@@ -594,8 +676,8 @@ static int vi_motion(struct editor *e, int c, int count, int op, size_t *to,
       int ch = getkey(e);
       if (ch < 0 || ch == 3 || ch == 27) return 0;
       vi_findcmd = c;
-      vi_findch = ch;
-      if (!find_char(e, c, ch, count, to)) return 0;
+      vi_findlen = read_char(e, ch, vi_findch);
+      if (!find_char(e, c, vi_findch, vi_findlen, count, to)) return 0;
       *incl = c == 'f' || c == 't';
       return 1;
     }
@@ -607,7 +689,7 @@ static int vi_motion(struct editor *e, int c, int count, int op, size_t *to,
         static const char rev[] = "fFFftTTt";
         cmd = rev[(strchr(rev, cmd) - rev) ^ 1];
       }
-      if (!find_char(e, cmd, vi_findch, count, to)) return 0;
+      if (!find_char(e, cmd, vi_findch, vi_findlen, count, to)) return 0;
       *incl = cmd == 'f' || cmd == 't';
       return 1;
     }
@@ -645,7 +727,7 @@ static void vi_command_mode(struct editor *e) {
   free(e->rorig);
   e->rorig = NULL;
   e->cmd = 1;
-  if (e->pos > 0) e->pos--;
+  e->pos = char_prev(e->buf.s, e->pos);
 }
 
 /* Apply operator op (d c y) to [from, to). */
@@ -691,7 +773,8 @@ static int read_pattern(struct editor *e, int lead, strbuf *pat) {
     if (c == '\r' || c == '\n') return 1;
     if (c == 127 || c == 8) {
       if (!pat->len) return 0;
-      pat->s[--pat->len] = '\0';
+      pat->len = char_prev(pat->s, pat->len);
+      pat->s[pat->len] = '\0';
     } else if (c >= 32) {
       sb_putc(pat, (char)c);
     }
@@ -866,7 +949,7 @@ static int vi_command(struct editor *e, int c) {
     case 'I':
     case 'A':
       save_undo(e);
-      if (c == 'a' && len) e->pos++;
+      if (c == 'a') e->pos = char_next(e->buf.s, len, pos);
       if (c == 'I') e->pos = 0;
       if (c == 'A') e->pos = len;
       vi_insert_mode(e, n, 1);
@@ -878,15 +961,18 @@ static int vi_command(struct editor *e, int c) {
       e->rorig = xstrdup(e->buf.s);
       break;
     case 'x':
-      if (!len) goto fail;
-      vi_op(e, 'd', pos, pos + (size_t)n);
+    case 'X': {
+      if (c == 'x' ? !len : !pos) goto fail;
+      size_t p = pos;
+      for (int i = 0; i < n; i++)
+        p = c == 'x' ? char_next(e->buf.s, len, p) : char_prev(e->buf.s, p);
+      if (c == 'x')
+        vi_op(e, 'd', pos, p);
+      else
+        vi_op(e, 'd', p, pos);
       change = 1;
       break;
-    case 'X':
-      if (!pos) goto fail;
-      vi_op(e, 'd', pos > (size_t)n ? pos - (size_t)n : 0, pos);
-      change = 1;
-      break;
+    }
     case 'D':
     case 'C':
       vi_op(e, c == 'D' ? 'd' : 'c', pos, len);
@@ -916,7 +1002,7 @@ static int vi_command(struct editor *e, int c) {
         if (to < pos)
           vi_op(e, c, to, pos);
         else
-          vi_op(e, c, pos, to + (size_t)incl);
+          vi_op(e, c, pos, incl ? char_next(e->buf.s, len, to) : to);
       }
       change = c != 'y';
       break;
@@ -925,28 +1011,53 @@ static int vi_command(struct editor *e, int c) {
     case 'P':
       if (!vi_yank || !*vi_yank) goto fail;
       save_undo(e);
-      if (c == 'p' && len) e->pos++;
+      if (c == 'p') e->pos = char_next(e->buf.s, len, pos);
       for (int i = 0; i < n; i++) insert(e, vi_yank, strlen(vi_yank));
-      e->pos--;
+      e->pos = char_prev(e->buf.s, e->pos);
       change = 1;
       break;
     case 'r': {
+      char rc[4];
       int ch;
       NEXT(ch);
       if (ch == 27) break;
-      if (pos + (size_t)n > len) goto fail;
+      size_t rn = read_char(e, ch, rc);
+      size_t end = pos;
+      for (int i = 0; i < n; i++) {
+        if (end >= len) goto fail;
+        end = char_next(e->buf.s, len, end);
+      }
       save_undo(e);
-      memset(e->buf.s + pos, ch, (size_t)n);
-      e->pos = pos + (size_t)n - 1;
+      delete_range(e, pos, end);
+      e->pos = pos;
+      for (int i = 0; i < n; i++) insert(e, rc, rn);
+      e->pos -= rn;
       change = 1;
       break;
     }
     case '~':
       if (!len) goto fail;
       save_undo(e);
-      for (int i = 0; i < n && e->pos < len; i++, e->pos++) {
-        unsigned char ch = (unsigned char)e->buf.s[e->pos];
-        e->buf.s[e->pos] = (char)(islower(ch) ? toupper(ch) : tolower(ch));
+      for (int i = 0; i < n && e->pos < e->buf.len; i++) {
+        size_t at = e->pos, next = char_next(e->buf.s, e->buf.len, at);
+        mbstate_t st;
+        memset(&st, 0, sizeof(st));
+        wchar_t wc;
+        size_t r = mbrtowc(&wc, e->buf.s + at, next - at, &st);
+        if (r != (size_t)-1 && r != (size_t)-2 && r != 0) {
+          wchar_t other = iswlower((wint_t)wc) ? (wchar_t)towupper((wint_t)wc)
+                                               : (wchar_t)towlower((wint_t)wc);
+          char mb[MB_LEN_MAX];
+          memset(&st, 0, sizeof(st));
+          size_t mn = wcrtomb(mb, other, &st);
+          if (other != wc && mn != (size_t)-1) {
+            delete_range(e, at, next);
+            e->pos = at;
+            insert(e, mb, mn);
+            next = e->pos;
+          }
+        }
+        e->pos = next;
       }
       change = 1;
       break;
@@ -1189,7 +1300,8 @@ char *lineedit_read(const char *prompt) {
     if (e.cmd) {
       result = vi_command(&e, c);
       if (!result && e.cmd && e.buf.len && e.pos >= e.buf.len)
-        e.pos = e.buf.len - 1;
+        e.pos = char_prev(e.buf.s, e.buf.len);
+      while (e.pos > 0 && e.pos < e.buf.len && is_cont(e.buf.s[e.pos])) e.pos--;
       if (!result) refresh(&e);
       continue;
     }
@@ -1209,22 +1321,26 @@ char *lineedit_read(const char *prompt) {
       case 4: /* ^D */
         if (e.buf.len == 0)
           result = -1;
-        else if (e.pos < e.buf.len)
-          delete_range(&e, e.pos, e.pos + 1);
+        else
+          delete_range(&e, e.pos, char_next(e.buf.s, e.buf.len, e.pos));
         break;
       case 127:
       case 8:
         if (e.replace) {
-          /* R: back over what was typed, putting the old text back */
+          /* R: back over what was typed, putting the old text back: the
+           * line before the cursor, then the old line after as many
+           * characters as are left typed */
           if (e.pos > e.ins_start) {
-            e.pos--;
-            if (e.pos < strlen(e.rorig))
-              e.buf.s[e.pos] = e.rorig[e.pos];
-            else
-              delete_range(&e, e.pos, e.pos + 1);
+            size_t p = char_prev(e.buf.s, e.pos);
+            size_t q = e.ins_start, rl = strlen(e.rorig);
+            for (size_t i = e.ins_start; i < p; i = char_next(e.buf.s, p, i))
+              q = char_next(e.rorig, rl, q);
+            e.buf.len = p;
+            sb_puts(&e.buf, e.rorig + q);
+            e.pos = p;
           }
-        } else if (e.pos > 0) {
-          delete_range(&e, e.pos - 1, e.pos);
+        } else {
+          delete_range(&e, char_prev(e.buf.s, e.pos), e.pos);
         }
         break;
       case 1: /* ^A */
@@ -1234,10 +1350,10 @@ char *lineedit_read(const char *prompt) {
         e.pos = e.buf.len;
         break;
       case 2: /* ^B */
-        if (e.pos > 0) e.pos--;
+        e.pos = char_prev(e.buf.s, e.pos);
         break;
       case 6: /* ^F */
-        if (e.pos < e.buf.len) e.pos++;
+        e.pos = char_next(e.buf.s, e.buf.len, e.pos);
         break;
       case 11: /* ^K */
         delete_range(&e, e.pos, e.buf.len);
@@ -1293,7 +1409,11 @@ char *lineedit_read(const char *prompt) {
         if (c >= 32 && c < 256) {
           char ch = (char)c;
           if (e.replace && e.pos < e.buf.len) {
-            e.buf.s[e.pos++] = ch;
+            /* a character's first byte takes the place of the one under
+             * the cursor; the rest of its bytes follow it */
+            if (!is_cont(ch))
+              delete_range(&e, e.pos, char_next(e.buf.s, e.buf.len, e.pos));
+            insert(&e, &ch, 1);
             break;
           }
           int at_end = e.pos == e.buf.len;

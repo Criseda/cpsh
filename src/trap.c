@@ -33,6 +33,28 @@ static const struct {
     {SIGCONT, "CONT"}, {SIGSTOP, "STOP"}, {SIGTSTP, "TSTP"}, {SIGTTIN, "TTIN"},
     {SIGTTOU, "TTOU"}, {SIGURG, "URG"},   {SIGXCPU, "XCPU"}, {SIGXFSZ, "XFSZ"},
     {SIGVTALRM, "VTALRM"}, {SIGPROF, "PROF"}, {SIGSYS, "SYS"},
+    /* not in POSIX, and numbered differently across systems */
+#ifdef SIGWINCH
+    {SIGWINCH, "WINCH"},
+#endif
+#ifdef SIGIO
+    {SIGIO, "IO"},
+#endif
+#ifdef SIGPOLL
+    {SIGPOLL, "POLL"},
+#endif
+#ifdef SIGINFO
+    {SIGINFO, "INFO"},
+#endif
+#ifdef SIGEMT
+    {SIGEMT, "EMT"},
+#endif
+#ifdef SIGPWR
+    {SIGPWR, "PWR"},
+#endif
+#ifdef SIGSTKFLT
+    {SIGSTKFLT, "STKFLT"},
+#endif
 };
 
 #define NSIGNAMES (sizeof(signames) / sizeof(signames[0]))
@@ -56,8 +78,12 @@ int signal_number(const char *name) {
   return -1;
 }
 
+/* By number, as signals are numbered differently on each system. */
 void kill_list(void) {
-  for (size_t i = 0; i < NSIGNAMES; i++) puts(signames[i].name);
+  for (int s = 1; s < NSIGS; s++) {
+    const char *nm = signal_name(s);
+    if (nm) puts(nm);
+  }
 }
 
 static void on_signal(int sig) {

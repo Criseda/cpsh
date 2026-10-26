@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
 project(cpsh VERSION 1.0.0 LANGUAGES C)
 
-# Set the output directory for the binary
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/../bin)
+# Put the binary in bin/ at the top of the source tree, wherever the build
+# directory is, unless -DCMAKE_RUNTIME_OUTPUT_DIRECTORY says otherwise
+if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
+endif()
 
 # Optimised build unless asked otherwise
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)

@@ -23,7 +23,8 @@ static long to_int(const char *s) {
 }
 
 static int is_unary(const char *op) {
-  return op[0] == '-' && op[1] && !op[2] && strchr("bcdefghLnprSstuwxz", op[1]);
+  return op[0] == '-' && op[1] && !op[2] &&
+         strchr("bcdefghkLnprSstuwxz", op[1]);
 }
 
 static int is_binary(const char *op) {
@@ -68,6 +69,8 @@ static int unary(const char *op, const char *arg) {
       return S_ISREG(st.st_mode);
     case 'g':
       return (st.st_mode & S_ISGID) != 0;
+    case 'k':
+      return (st.st_mode & S_ISVTX) != 0;
     case 'p':
       return S_ISFIFO(st.st_mode);
     case 'S':

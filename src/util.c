@@ -2,6 +2,7 @@
 
 #include <fnmatch.h>
 #include <locale.h>
+#include <sys/resource.h>
 
 const char *progname = CPSH_NAME;
 
@@ -238,6 +239,38 @@ void sh_error(const char *fmt, ...) {
   vwarn(fmt, ap);
   va_end(ap);
   raise_exception(EX_ERROR);
+}
+
+/* ---- stack depth ---- */
+
+static uintptr_t stack_base;
+static size_t stack_room;
+
+static uintptr_t frame_address(void) {
+#if defined(__GNUC__)
+  /* the real stack even under ASan, whose locals may be on the heap */
+  return (uintptr_t)__builtin_frame_address(0);
+#else
+  char here;
+  return (uintptr_t)&here;
+#endif
+}
+
+void stack_init(void) {
+  stack_base = frame_address();
+  size_t limit = 8 * 1024 * 1024;
+  struct rlimit rl;
+  if (getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY)
+    limit = (size_t)rl.rlim_cur;
+  /* leave a quarter for libc, signal handlers and reporting the error */
+  stack_room = limit / 4 * 3;
+}
+
+void stack_check(void) {
+  if (!stack_room) return;
+  uintptr_t here = frame_address();
+  size_t used = here < stack_base ? stack_base - here : here - stack_base;
+  if (used > stack_room) sh_error("nesting too deep");
 }
 
 /* ---- misc ---- */

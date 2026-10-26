@@ -878,7 +878,14 @@ char *cmdsub_run(const char *cmd, size_t *len) {
     ssize_t n = read(p[0], buf, sizeof(buf));
     if (n < 0 && errno == EINTR) continue;
     if (n <= 0) break;
-    sb_putn(&sb, buf, (size_t)n);
+    /* a shell string cannot hold NUL: drop them, as other shells do,
+     * rather than let the first one cut the output short */
+    for (const char *p = buf, *end = buf + n; p < end;) {
+      const char *nul = memchr(p, '\0', (size_t)(end - p));
+      const char *stop = nul ? nul : end;
+      sb_putn(&sb, p, (size_t)(stop - p));
+      p = stop + (nul != NULL);
+    }
   }
   close(p[0]);
   cmdsub_status = waitforpid(pid);
